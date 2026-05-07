@@ -4,17 +4,22 @@ export async function checkHealth(baseUrl: string): Promise<HealthResult> {
   const healthUrl = baseUrl.replace(/\/v1$/, '') + '/health'
 
   try {
-    const res = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) })
+    const res = await fetch(healthUrl, { signal: AbortSignal.timeout(5000) })
+
+    if (res.status === 503) {
+      return { healthy: false, status: 'loading', modelLoaded: false }
+    }
+
     if (!res.ok) {
       return { healthy: false, status: `HTTP ${res.status}`, modelLoaded: false }
     }
 
-    const body = await res.text()
-    const modelLoaded = body.includes('model_loaded') || body.includes('ok')
+    const body = await res.text().catch(() => '')
+    const modelLoaded = !body.includes('model_not_loaded') && res.status === 200
 
     return {
       healthy: true,
-      status: body.trim().slice(0, 100),
+      status: body.trim().slice(0, 100) || 'ok',
       modelLoaded,
     }
   } catch (err: any) {
@@ -29,7 +34,7 @@ export async function checkHealth(baseUrl: string): Promise<HealthResult> {
 
 export async function waitForReady(
   baseUrl: string,
-  timeoutMs = 60_000,
+  timeoutMs = 120_000,
   onRetry?: (attempt: number) => void,
 ): Promise<HealthResult> {
   const start = Date.now()
@@ -54,10 +59,10 @@ export async function waitForReady(
 export async function checkModelLoaded(baseUrl: string): Promise<boolean> {
   try {
     const res = await fetch(`${baseUrl.replace(/\/v1$/, '')}/v1/models`, {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(5000),
     })
     if (!res.ok) return false
-    const data = await res.json()
+    const data = await res.json().catch(() => null)
     return Array.isArray(data?.data) && data.data.length > 0
   } catch {
     return false

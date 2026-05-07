@@ -1,5 +1,4 @@
-import type { LLMConfig } from '../types.js'
-import { existsSync, statSync } from 'fs'
+import { existsSync, statSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { execSync } from 'child_process'
@@ -17,33 +16,33 @@ const SEARCH_PATHS = [
 ]
 
 export function findBinary(customPath?: string): string | null {
-  if (customPath) {
-    if (existsSync(customPath)) return customPath
-  }
+  if (customPath && existsSync(customPath)) return customPath
 
-  const pathEnv = process.env.PATH?.split(';').map(p => p.trim()) ?? []
+  const pathEnv = (process.env.PATH || '')
+    .split(process.platform === 'win32' ? ';' : ':')
+    .map((p) => p.trim())
+    .filter(Boolean)
 
   for (const name of BINARY_NAMES) {
     for (const dir of [...SEARCH_PATHS, ...pathEnv]) {
+      if (!dir) continue
       const full = join(dir, name)
       try {
         if (existsSync(full) && statSync(full).isFile()) return full
-      } catch { continue }
+      } catch { }
     }
 
     try {
-      execSync(`${name} --version 2>${process.platform === 'win32' ? 'nul' : '/dev/null'}`, { stdio: 'ignore' })
+      execSync(`${name} --version`, { stdio: 'ignore', windowsHide: true })
       return name
-    } catch { continue }
+    } catch { }
   }
 
   return null
 }
 
 export function findModel(customPath?: string): string | null {
-  if (customPath) {
-    if (existsSync(customPath)) return customPath
-  }
+  if (customPath && existsSync(customPath)) return customPath
 
   const searchDirs = [
     join(homedir(), '.locus', 'models'),
@@ -54,26 +53,40 @@ export function findModel(customPath?: string): string | null {
   for (const dir of searchDirs) {
     if (!existsSync(dir)) continue
     try {
-      const files = execSync(`dir "${dir}\\*.gguf" /b 2>nul`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] })
-        .split('\n')
-        .map(f => f.trim())
-        .filter(Boolean)
-      if (files.length > 0) return join(dir, files[0])
-    } catch {
-      try {
-        const files = execSync(`ls "${dir}"/*.gguf 2>/dev/null`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] })
-          .split('\n')
-          .map(f => f.trim())
-          .filter(Boolean)
-        if (files.length > 0) return files[0]
-      } catch { continue }
-    }
+      const entries = readdirSync(dir)
+      const model = entries.find((f) => f.endsWith('.gguf'))
+      if (model) return join(dir, model)
+    } catch { }
   }
 
   return null
 }
 
+export function findModels(): { path: string; name: string; sizeBytes: number }[] {
+  const results: { path: string; name: string; sizeBytes: number }[] = []
+  const dirs = [
+    join(homedir(), '.locus', 'models'),
+    join(process.cwd(), 'models'),
+  ]
+
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue
+    try {
+      for (const f of readdirSync(dir)) {
+        if (!f.endsWith('.gguf')) continue
+        const full = join(dir, f)
+        try {
+          const stat = statSync(full)
+          results.push({ path: full, name: f, sizeBytes: stat.size })
+        } catch { }
+      }
+    } catch { }
+  }
+
+  return results.sort((a, b) => b.sizeBytes - a.sizeBytes)
+}
+
 export function suggestModelDownload(): string {
   const modelDir = join(homedir(), '.locus', 'models')
-  return `Download a GGUF model to ${modelDir}:\n  curl -L -o "${join(modelDir, 'qwen2.5-coder-1.5b-instruct.gguf')}" <url>`
+  return `Download a GGUF model to ${modelDir}:\n  curl -L -o "${join(modelDir, '<model>.gguf')}" <url>`
 }

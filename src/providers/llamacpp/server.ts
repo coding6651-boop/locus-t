@@ -1,15 +1,17 @@
 import pc from 'picocolors'
-import { execSync } from 'child_process'
-import type { ServerConfig, ServerStatus, HealthResult } from './types.js'
+import { spawn, execSync } from 'child_process'
+import { findBinary } from './binary.js'
 import { checkHealth } from './health.js'
+import type { ServerConfig, ServerStatus, HealthResult } from './types.js'
 
 export class LlamaCppServer {
   private proc: import('child_process').ChildProcess | null = null
   private startTime = 0
   private config: ServerConfig | null = null
+  private stderrBuf = ''
 
   get isRunning(): boolean {
-    return this.proc !== null && this.proc.exitCode === null
+    return this.proc !== null && this.proc.exitCode === null && this.proc.killed === false
   }
 
   get status(): ServerStatus | null {
@@ -23,10 +25,13 @@ export class LlamaCppServer {
     }
   }
 
+  get lastStderr(): string {
+    return this.stderrBuf
+  }
+
   async start(config: ServerConfig): Promise<void> {
     this.config = config
-    const { spawn } = await import('child_process')
-    const { findBinary } = await import('./binary.js')
+    this.stderrBuf = ''
 
     const binaryPath = config.binaryPath ?? findBinary()
     if (!binaryPath) {
@@ -49,32 +54,66 @@ export class LlamaCppServer {
     }
 
     this.proc = spawn(binaryPath, args, {
-      stdio: config.verbose ? 'inherit' : 'ignore',
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
     })
 
     this.startTime = Date.now()
 
-    this.proc.on('exit', (code) => {
-      if (code !== 0 && code !== null) {
-        process.stderr.write(pc.red(`\nllama-server exited with code ${code}\n`))
-      }
-      this.proc = null
+    this.proc.stderr?.on('data', (data: Buffer) => {
+      this.stderrBuf += data.toString()
     })
 
-    this.proc.on('error', (err) => {
-      throw new Error(`Failed to start llama-server: ${err.message}`)
+    return new Promise((resolve, reject) => {
+      const startupTimer = setTimeout(() => {
+        resolve()
+      }, 2000)
+
+      this.proc!.on('error', (err) => {
+        clearTimeout(startupTimer)
+        this.proc = null
+        reject(new Error(`Failed to start llama-server: ${err.message}`))
+      })
+
+      this.proc!.on('exit', (code) => {
+        clearTimeout(startupTimer)
+        if (code !== 0 && code !== null && !this.proc?.killed) {
+          const errMsg = this.getStartupError()
+          this.proc = null
+          reject(new Error(`llama-server exited (code ${code}): ${errMsg}`))
+        }
+        this.proc = null
+      })
+
+      this.proc!.on('spawn', () => {
+        setTimeout(() => resolve(), 500)
+      })
     })
   }
 
-  async waitForReady(timeoutMs = 60_000): Promise<HealthResult> {
+  async waitForReady(timeoutMs = 120_000, onProgress?: (msg: string) => void): Promise<HealthResult> {
     if (!this.config) throw new Error('Server not configured')
 
     const baseUrl = `http://${this.config.host}:${this.config.port}`
     const start = Date.now()
 
+    // Wait for process to actually start (port bind)
+    await new Promise((r) => setTimeout(r, 1500))
+
     while (Date.now() - start < timeoutMs) {
       const result = await checkHealth(baseUrl)
       if (result.healthy) return result
+
+      if (!this.isRunning && this.proc === null) {
+        return {
+          healthy: false,
+          status: 'crashed',
+          modelLoaded: false,
+          error: this.getStartupError() || 'llama-server process died during startup',
+        }
+      }
+
+      onProgress?.(`.`)
       await new Promise((r) => setTimeout(r, 1000))
     }
 
@@ -82,39 +121,46 @@ export class LlamaCppServer {
       healthy: false,
       status: 'timeout',
       modelLoaded: false,
-      error: `llama-server did not become healthy within ${timeoutMs / 1000}s`,
+      error: this.getStartupError() || `llama-server did not respond within ${timeoutMs / 1000}s`,
     }
   }
 
   async stop(timeoutMs = 10_000): Promise<void> {
-    if (!this.proc || this.proc.exitCode !== null) {
+    const proc = this.proc
+    if (!proc || proc.exitCode !== null) {
       this.proc = null
       return
     }
 
-    const proc = this.proc
     const pid = proc.pid
 
-    return new Promise((resolve) => {
+    await new Promise<void>((resolve) => {
       const killTimer = setTimeout(() => {
         try { proc.kill('SIGKILL') } catch { }
-        this.proc = null
         resolve()
       }, timeoutMs)
 
       proc.on('exit', () => {
         clearTimeout(killTimer)
-        this.proc = null
         resolve()
       })
 
       try {
-        if (process.platform === 'win32' && pid !== undefined) {
-          execSync(`taskkill /PID ${pid} /F /T 2>nul`, { stdio: 'ignore' })
-        } else {
-          proc.kill('SIGTERM')
+        if (pid !== undefined) {
+          if (process.platform === 'win32') {
+            execSync(`taskkill /PID ${pid} /F /T`, { stdio: 'ignore', windowsHide: true })
+          } else {
+            proc.kill('SIGTERM')
+          }
         }
       } catch { }
     })
+
+    this.proc = null
+  }
+
+  private getStartupError(): string {
+    const lines = this.stderrBuf.split('\n').filter((l) => l.trim()).slice(-5)
+    return lines.length > 0 ? lines.join('; ') : '(no error output)'
   }
 }
