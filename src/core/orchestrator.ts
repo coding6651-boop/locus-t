@@ -6,6 +6,7 @@ import { InferenceEngine } from '../ai/inference.js'
 import { getToolDefinitions, getTool } from '../tools/registry.js'
 import { StreamHandler } from '../ai/streaming.js'
 import type { LLMProvider } from '../providers/types.js'
+import pc from 'picocolors'
 
 export class Orchestrator {
   private session: Session
@@ -40,6 +41,8 @@ export class Orchestrator {
       streamHandler?.flush()
 
       if (response.tool_calls?.length) {
+        process.stdout.write('\n')
+
         this.session.messages.push({
           role: 'assistant',
           content: response.content,
@@ -59,8 +62,11 @@ export class Orchestrator {
             continue
           }
 
+          process.stdout.write(pc.dim(`  ⚡ ${tc.function.name}(${JSON.stringify(args)})... `))
           const result = await tool.handler(args)
           const truncated = this.contextEngine.truncateToolResult(result)
+          process.stdout.write(pc.dim('done\n'))
+
           this.session.messages.push({ role: 'tool', tool_call_id: tc.id, content: truncated })
         }
       } else {
