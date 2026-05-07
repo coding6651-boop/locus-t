@@ -1,10 +1,12 @@
 import type { Message } from '../providers/types.js'
-import { createSession, type Session } from './session.js'
+import { createSession, type Session, sessionPreview } from './session.js'
 import { PromptBuilder } from './prompt-builder.js'
 import { ContextEngine } from './context-engine.js'
 import { InferenceEngine } from '../ai/inference.js'
 import { getToolDefinitions, getTool } from '../tools/registry.js'
 import type { LLMProvider } from '../providers/types.js'
+import { SessionStore } from '../memory/store.js'
+import { getConfig } from '../runtime/state.js'
 import pc from 'picocolors'
 
 export class Orchestrator {
@@ -12,17 +14,44 @@ export class Orchestrator {
   private promptBuilder: PromptBuilder
   private contextEngine: ContextEngine
   private inference: InferenceEngine
+  private store: SessionStore
   private maxIterations = 25
 
-  constructor(provider: LLMProvider) {
-    this.session = createSession()
+  constructor(provider: LLMProvider, resumeSessionId?: string) {
+    this.store = new SessionStore(getConfig().storageDir)
     this.promptBuilder = new PromptBuilder()
     this.contextEngine = new ContextEngine()
     this.inference = new InferenceEngine(provider)
 
-    const systemMsg = this.promptBuilder.buildSystem()
-    this.contextEngine.setSystemMessage(systemMsg)
-    this.session.messages.push(systemMsg)
+    if (resumeSessionId) {
+      const saved = this.store.load(resumeSessionId)
+      if (saved) {
+        this.session = saved
+        this.session.turns = saved.turns
+        process.stdout.write(pc.dim(`  Resumed session ${saved.id} (${saved.turns} turns)\n`))
+      } else {
+        process.stdout.write(pc.yellow(`  Session ${resumeSessionId} not found, starting new\n`))
+        this.session = createSession()
+      }
+    } else {
+      const last = this.store.last()
+      if (last && last.turns > 0) {
+        this.session = last
+        this.session.turns = last.turns
+        process.stdout.write(pc.dim(`  Continuing last session ${last.id} (${last.turns} turns)\n`))
+      } else {
+        this.session = createSession()
+      }
+    }
+
+    const hasSystem = this.session.messages.some((m) => m.role === 'system')
+    if (!hasSystem) {
+      const systemMsg = this.promptBuilder.buildSystem()
+      this.contextEngine.setSystemMessage(systemMsg)
+      this.session.messages.unshift(systemMsg)
+    } else {
+      this.contextEngine.setSystemMessage(this.session.messages[0])
+    }
   }
 
   async run(input: string): Promise<string> {
@@ -60,17 +89,43 @@ export class Orchestrator {
       } else {
         const content = response.content ?? ''
         this.session.messages.push({ role: 'assistant', content })
+        this.session.turns++
+        this.session.updatedAt = new Date().toISOString()
+        this.store.save(this.session)
         return content
       }
     }
 
+    this.session.updatedAt = new Date().toISOString()
+    this.store.save(this.session)
     return '\nReached maximum iteration limit.'
   }
 
+  listSessions(): { id: string; createdAt: string; turns: number }[] {
+    return this.store.list()
+  }
+
   reset(): void {
+    if (this.session.turns > 0) {
+      this.session.updatedAt = new Date().toISOString()
+      this.store.save(this.session)
+    }
     this.session = createSession()
     const systemMsg = this.promptBuilder.buildSystem()
     this.contextEngine.setSystemMessage(systemMsg)
     this.session.messages.push(systemMsg)
+    process.stdout.write(pc.green('Session reset.\n'))
+  }
+
+  switchSession(sessionId: string): boolean {
+    const saved = this.store.load(sessionId)
+    if (!saved) return false
+    if (this.session.turns > 0) {
+      this.session.updatedAt = new Date().toISOString()
+      this.store.save(this.session)
+    }
+    this.session = saved
+    process.stdout.write(pc.green(`Switched to session ${sessionId} (${saved.turns} turns)\n`))
+    return true
   }
 }

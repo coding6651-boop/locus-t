@@ -11,10 +11,12 @@ const BANNER = pc.cyan(`
 `)
 
 const HELP = `${pc.dim('Commands:')}
-  ${pc.green('/help')}     Show help
-  ${pc.green('/clear')}    Clear screen
-  ${pc.green('/exit')}     Exit
-  ${pc.green('/reset')}    Reset session
+  ${pc.green('/help')}       Show help
+  ${pc.green('/clear')}      Clear screen
+  ${pc.green('/sessions')}   List saved sessions
+  ${pc.green('/session <id>')} Resume a session by ID
+  ${pc.green('/reset')}      Reset session
+  ${pc.green('/exit')}       Exit
 `
 
 export class CLI {
@@ -36,13 +38,7 @@ export class CLI {
       if (!t) { rl.prompt(); return }
 
       if (t.startsWith('/')) {
-        switch (t) {
-          case '/help': process.stdout.write(HELP); break
-          case '/clear': console.clear(); process.stdout.write(BANNER); break
-          case '/exit': case '/quit': rl.close(); return
-          case '/reset': this.orchestrator.reset(); process.stdout.write(pc.green('Session reset.\n')); break
-          default: process.stdout.write(pc.red(`Unknown: ${t}\n`))
-        }
+        await this.handleCommand(t, rl)
         rl.prompt()
         return
       }
@@ -59,5 +55,58 @@ export class CLI {
     })
 
     rl.on('close', () => { process.stdout.write(pc.dim('\nGoodbye!\n')); process.exit(0) })
+  }
+
+  private async handleCommand(cmd: string, rl: ReturnType<typeof createInterface>): Promise<void> {
+    const parts = cmd.split(/\s+/)
+    const command = parts[0].toLowerCase()
+
+    switch (command) {
+      case '/help':
+        process.stdout.write(HELP)
+        break
+
+      case '/clear':
+        console.clear()
+        process.stdout.write(BANNER)
+        break
+
+      case '/reset':
+        this.orchestrator.reset()
+        break
+
+      case '/sessions': {
+        const sessions = this.orchestrator.listSessions()
+        if (sessions.length === 0) {
+          process.stdout.write(pc.dim('No saved sessions.\n'))
+        } else {
+          process.stdout.write(pc.dim('Saved sessions:\n'))
+          for (const s of sessions) {
+            const date = new Date(s.createdAt).toLocaleString()
+            process.stdout.write(`  ${pc.green(s.id)}  ${date}  ${s.turns} turns\n`)
+          }
+        }
+        break
+      }
+
+      case '/session': {
+        const sessionId = parts[1]
+        if (!sessionId) {
+          process.stdout.write(pc.yellow('Usage: /session <id>\n'))
+          break
+        }
+        const ok = this.orchestrator.switchSession(sessionId)
+        if (!ok) process.stdout.write(pc.red(`Session "${sessionId}" not found.\n`))
+        break
+      }
+
+      case '/exit':
+      case '/quit':
+        rl.close()
+        break
+
+      default:
+        process.stdout.write(pc.red(`Unknown command: ${command}\n`))
+    }
   }
 }
