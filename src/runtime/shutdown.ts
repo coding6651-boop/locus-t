@@ -7,7 +7,18 @@ export function onShutdown(fn: () => void | Promise<void>): void {
 }
 
 export async function shutdown(): Promise<void> {
-  for (const fn of cleanupFns) await fn()
+  for (const fn of cleanupFns) {
+    try { await fn() } catch { }
+  }
   stopLifecycle()
   process.exit(0)
 }
+
+process.on('SIGINT', async () => {
+  process.stdout.write('\n')
+  await shutdown()
+})
+
+process.on('SIGTERM', async () => {
+  await shutdown()
+})

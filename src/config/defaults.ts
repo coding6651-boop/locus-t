@@ -7,6 +7,13 @@ export interface AppConfig {
   temperature: number
   maxTokens: number
   storageDir: string
+  host: string
+  port: number
+  modelPath: string
+  binaryPath: string
+  nCtx: number
+  nGpuLayers: number
+  verbose: boolean
 }
 
 export const defaults: AppConfig = {
@@ -15,4 +22,11 @@ export const defaults: AppConfig = {
   temperature: 0.1,
   maxTokens: 8192,
   storageDir: '',
+  host: '127.0.0.1',
+  port: 8080,
+  modelPath: '',
+  binaryPath: '',
+  nCtx: 4096,
+  nGpuLayers: 0,
+  verbose: false,
 }

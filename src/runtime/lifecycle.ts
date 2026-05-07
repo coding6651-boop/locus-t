@@ -1,6 +1,7 @@
 import { mkdirSync, existsSync } from 'fs'
 import { getConfig } from './state.js'
 import { locusHome, modelsDir, cacheDir, sessionsDir, logsDir } from '../system/paths.js'
+import { join } from 'path'
 import pc from 'picocolors'
 
 const DIRS = [locusHome, modelsDir, cacheDir, sessionsDir, logsDir]
@@ -15,6 +16,9 @@ export function startLifecycle(): void {
     }
   }
 
+  const binDir = join(locusHome(), 'bin')
+  if (!existsSync(binDir)) mkdirSync(binDir, { recursive: true })
+
   if (config.storageDir && !existsSync(config.storageDir)) {
     mkdirSync(config.storageDir, { recursive: true })
   }
@@ -23,5 +27,4 @@ export function startLifecycle(): void {
 }
 
 export function stopLifecycle(): void {
-  // Save session, flush logs, etc.
 }
