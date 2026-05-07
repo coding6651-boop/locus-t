@@ -49,8 +49,8 @@ export class CLI {
 
       rl.pause()
       try {
-        await this.orchestrator.run(t, (token) => process.stdout.write(token))
-        process.stdout.write('\n')
+        const response = await this.orchestrator.run(t)
+        process.stdout.write('\n' + response + '\n')
       } catch (err: any) {
         process.stdout.write(pc.red(`\nError: ${err.message}\n`))
       }

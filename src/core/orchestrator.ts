@@ -4,7 +4,6 @@ import { PromptBuilder } from './prompt-builder.js'
 import { ContextEngine } from './context-engine.js'
 import { InferenceEngine } from '../ai/inference.js'
 import { getToolDefinitions, getTool } from '../tools/registry.js'
-import { StreamHandler } from '../ai/streaming.js'
 import type { LLMProvider } from '../providers/types.js'
 import pc from 'picocolors'
 
@@ -26,23 +25,15 @@ export class Orchestrator {
     this.session.messages.push(systemMsg)
   }
 
-  async run(input: string, onToken?: (token: string) => void): Promise<string> {
+  async run(input: string): Promise<string> {
     this.session.messages.push(this.promptBuilder.buildUser(input))
     const tools = getToolDefinitions()
 
     for (let i = 0; i < this.maxIterations; i++) {
       const pruned = this.contextEngine.prune(this.session.messages)
-      const streamHandler = onToken ? new StreamHandler(onToken) : undefined
-
-      const response = await this.inference.chatStream(pruned, tools, (token) => {
-        streamHandler?.append(token)
-        onToken?.(token)
-      })
-      streamHandler?.flush()
+      const response = await this.inference.chat(pruned, tools)
 
       if (response.tool_calls?.length) {
-        process.stdout.write('\n')
-
         this.session.messages.push({
           role: 'assistant',
           content: response.content,
@@ -62,11 +53,8 @@ export class Orchestrator {
             continue
           }
 
-          process.stdout.write(pc.dim(`  ⚡ ${tc.function.name}(${JSON.stringify(args)})... `))
           const result = await tool.handler(args)
           const truncated = this.contextEngine.truncateToolResult(result)
-          process.stdout.write(pc.dim('done\n'))
-
           this.session.messages.push({ role: 'tool', tool_call_id: tc.id, content: truncated })
         }
       } else {
