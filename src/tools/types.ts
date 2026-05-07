@@ -1,8 +1,6 @@
-import type { ToolDefinition } from '../llm/interface.js'
-
-export type ToolHandler = (args: Record<string, unknown>) => Promise<string>
+import type { ToolDefinition } from '../providers/types.js'
 
 export interface Tool {
   definition: ToolDefinition
-  handler: ToolHandler
+  handler: (args: Record<string, unknown>) => Promise<string>
 }

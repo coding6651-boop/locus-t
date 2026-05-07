@@ -1,10 +1,11 @@
 import type { Tool } from './types.js'
-import type { ToolDefinition } from '../llm/interface.js'
-import { bashTool } from './bash.js'
-import { readTool } from './read.js'
-import { writeTool } from './write.js'
-import { editTool } from './edit.js'
-import { globTool } from './glob.js'
+import { bashTool } from './bash/index.js'
+import { readTool, writeTool } from './files/index.js'
+import { editTool } from './edit/index.js'
+import { globTool } from './search/index.js'
+import { grepTool } from './grep/index.js'
+import { gitTool } from './git/index.js'
+import type { ToolDefinition } from '../providers/types.js'
 
 const tools: Tool[] = [
   bashTool,
@@ -12,6 +13,8 @@ const tools: Tool[] = [
   writeTool,
   editTool,
   globTool,
+  grepTool,
+  gitTool,
 ]
 
 export function getToolDefinitions(): ToolDefinition[] {

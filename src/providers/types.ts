@@ -35,7 +35,7 @@ export interface LLMResponse {
   tool_calls?: ToolCall[]
 }
 
-export interface LLMClient {
+export interface LLMProvider {
   chat(messages: Message[], tools?: ToolDefinition[]): Promise<LLMResponse>
   chatStream(
     messages: Message[],

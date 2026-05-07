@@ -4,15 +4,15 @@
   "description": "Local AI coding terminal — offline LLM-powered coding assistant",
   "type": "module",
   "bin": {
-    "locus": "dist/index.js"
+    "locus": "dist/bin/locus.js"
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "start": "node dist/bin/locus.js",
+    "dev": "tsx bin/locus.ts"
   },
   "dependencies": {
-    "glob": "^13.0.6",
+    "glob": "^11.0.0",
     "openai": "^4.73.0",
     "picocolors": "^1.1.1"
   },
