@@ -175,16 +175,39 @@ export class Orchestrator {
   }
 
   private printConversation(): void {
-    const msgs = this.session.messages
-    if (msgs.length === 0) return
+    const exchanges: { user: string; assistant: string }[] = []
+    let current: { user: string; assistant: string } | null = null
 
-    process.stdout.write(pc.dim('  ' + '─'.repeat(46) + '\n'))
-    for (const m of msgs) {
-      if (m.role === 'system') continue
-      const label = m.role === 'user' ? pc.cyan('You     ') : pc.green('locus   ')
-      const preview = (m.content ?? '(tool call)').split('\n')[0].slice(0, 80)
-      process.stdout.write(`  ${label} ${preview}\n`)
+    for (const m of this.session.messages) {
+      if (m.role === 'user') {
+        if (!current) current = { user: '', assistant: '' }
+        current.user = m.content ?? ''
+      } else if (m.role === 'assistant' && current) {
+        current.assistant = m.content ?? ''
+        exchanges.push(current)
+        current = null
+      }
     }
-    process.stdout.write(pc.dim('  ' + '─'.repeat(46) + '\n'))
+
+    if (exchanges.length === 0) {
+      process.stdout.write(pc.dim('  (empty conversation)\n'))
+      return
+    }
+
+    if (exchanges.length > 5) {
+      process.stdout.write(pc.dim(`  ${exchanges.length - 5} earlier exchanges...\n`))
+    }
+
+    const slice = exchanges.length > 5 ? exchanges.slice(-5) : exchanges
+
+    for (const e of slice) {
+      const userPreview = e.user.length > 70 ? e.user.slice(0, 70) + '...' : e.user
+      process.stdout.write(`  ${pc.cyan('Q:')} ${userPreview}\n`)
+      if (e.assistant) {
+        const asstPreview = e.assistant.length > 80 ? e.assistant.slice(0, 80) + '...' : e.assistant
+        process.stdout.write(`  ${pc.green('A:')} ${asstPreview}\n`)
+      }
+    }
+    process.stdout.write('\n')
   }
 }
