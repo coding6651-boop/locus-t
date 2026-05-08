@@ -19,6 +19,8 @@ const HELP = `${pc.dim('Commands:')}
   ${pc.green('/exit')}       Exit
 `
 
+const ESC_BYTE = 27
+
 export class CLI {
   private orchestrator: Orchestrator
   private currentAbort: AbortController | null = null
@@ -48,19 +50,54 @@ export class CLI {
       const ac = new AbortController()
       this.currentAbort = ac
 
+      let escTimer: ReturnType<typeof setTimeout> | null = null
+      let escHinted = false
+
+      const clearEscHint = () => {
+        if (!escHinted) return
+        escHinted = false
+        process.stdout.write('\x1b[1A\x1b[2K\r')
+      }
+
+      const wasRaw = process.stdin.isRaw
+      try { process.stdin.setRawMode(true) } catch { }
+      process.stdin.resume()
+
+      const onStdinData = (chunk: Buffer) => {
+        if (chunk.length === 1 && chunk[0] === ESC_BYTE) {
+          if (!escHinted) {
+            escHinted = true
+            process.stdout.write(pc.dim('\n⏎ ESC again within 7s to cancel'))
+            escTimer = setTimeout(() => { clearEscHint(); escTimer = null }, 7000)
+          } else {
+            clearEscHint()
+            if (escTimer) { clearTimeout(escTimer); escTimer = null }
+            ac.abort()
+          }
+        }
+      }
+
+      process.stdin.on('data', onStdinData)
+
       try {
         process.stdout.write('\n')
-        const response = await this.orchestrator.runStream(t, (token) => {
+        await this.orchestrator.runStream(t, (token) => {
           process.stdout.write(token)
         }, ac.signal)
+        clearEscHint()
         process.stdout.write('\n')
       } catch (err: any) {
+        clearEscHint()
         if (err.name === 'AbortError' || err.name === 'CanceledError') {
-          process.stdout.write('\n' + pc.yellow('Interrupted.\n'))
+          process.stdout.write(pc.yellow('\nInterrupted.\n'))
         } else {
           process.stdout.write(pc.red(`\nError: ${err.message}\n`))
         }
       } finally {
+        process.stdin.removeListener('data', onStdinData)
+        if (escTimer) { clearTimeout(escTimer); escTimer = null }
+        try { process.stdin.setRawMode(wasRaw ?? false) } catch { }
+        process.stdin.pause()
         this.currentAbort = null
       }
       rl.prompt()
