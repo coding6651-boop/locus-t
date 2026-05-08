@@ -2,6 +2,8 @@ import pc from 'picocolors'
 import { createInterface } from 'readline'
 import { Orchestrator } from '../core/orchestrator.js'
 import type { LLMProvider } from '../providers/types.js'
+import { verifyLicense } from '../auth/verification.js'
+import { activateLicense } from '../auth/activation.js'
 
 const BANNER = pc.cyan(`
   ╔══════════════════════════════╗
@@ -16,24 +18,53 @@ const HELP = `${pc.dim('Commands:')}
   ${pc.green('/sessions')}   List saved sessions
   ${pc.green('/session <id>')} Resume a session by ID
   ${pc.green('/new')}        Start a new session
+  ${pc.green('/activate')}   Activate license with a token
   ${pc.green('/exit')}       Exit
 `
 
 const ESC_BYTE = 27
 
+function prompt(licensed: boolean): string {
+  const p = 'locus'
+  if (licensed) return pc.green(p) + pc.dim(' > ')
+  return pc.yellow(p + ' [unlicensed]') + pc.dim(' > ')
+}
+
 export class CLI {
   private orchestrator: Orchestrator
   private currentAbort: AbortController | null = null
+  private licensed = false
 
   constructor(provider: LLMProvider) {
     this.orchestrator = new Orchestrator(provider)
   }
 
   async start(): Promise<void> {
-    const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: pc.green('locus') + pc.dim(' > ') })
+    if (process.env.COLX_DISABLE_LICENSE_GATE) {
+      this.licensed = true
+    } else {
+      const result = await verifyLicense()
+      if (result.ok) {
+        this.licensed = true
+      } else {
+        this.printLicenseError(result.code)
+      }
+    }
 
-    process.stdout.write(BANNER)
-    process.stdout.write(HELP + '\n')
+    const rl = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: prompt(this.licensed),
+    })
+
+    process.stdout.write(BANNER + '\n')
+
+    if (!this.licensed) {
+      process.stdout.write(pc.yellow('  Run /activate <token> to activate your license.\n\n'))
+    } else {
+      process.stdout.write(HELP + '\n')
+    }
+
     rl.prompt()
 
     rl.on('line', async (line: string) => {
@@ -42,6 +73,12 @@ export class CLI {
 
       if (t.startsWith('/')) {
         await this.handleCommand(t, rl)
+        rl.prompt()
+        return
+      }
+
+      if (!this.licensed) {
+        process.stdout.write(pc.yellow('  License required. Run /activate <token> to activate.\n'))
         rl.prompt()
         return
       }
@@ -120,6 +157,17 @@ export class CLI {
     rl.on('close', () => { process.stdout.write(pc.dim('\nGoodbye!\n')); process.exit(0) })
   }
 
+  private printLicenseError(code: string): void {
+    const messages: Record<string, string> = {
+      missing: 'No license found.',
+      expired: 'Your license has expired.',
+      device_mismatch: 'This license is bound to a different device.',
+      invalid_signature: 'License verification failed.',
+      malformed: 'License file is corrupted.',
+    }
+    process.stdout.write(pc.yellow(`  ${messages[code] || 'License check failed.'}\n`))
+  }
+
   private async handleCommand(cmd: string, rl: ReturnType<typeof createInterface>): Promise<void> {
     const parts = cmd.split(/\s+/)
     const command = parts[0].toLowerCase()
@@ -131,14 +179,25 @@ export class CLI {
 
       case '/clear':
         console.clear()
-        process.stdout.write(BANNER)
+        process.stdout.write(BANNER + '\n')
+        if (!this.licensed) {
+          process.stdout.write(pc.yellow('  Run /activate <token> to activate your license.\n\n'))
+        }
         break
 
       case '/new':
+        if (!this.licensed) {
+          process.stdout.write(pc.yellow('  License required. Run /activate <token> to activate.\n'))
+          break
+        }
         this.orchestrator.newSession()
         break
 
       case '/sessions': {
+        if (!this.licensed) {
+          process.stdout.write(pc.yellow('  License required. Run /activate <token> to activate.\n'))
+          break
+        }
         const sessions = this.orchestrator.listSessions()
         if (sessions.length === 0) {
           process.stdout.write(pc.dim('No saved sessions.\n'))
@@ -153,6 +212,10 @@ export class CLI {
       }
 
       case '/session': {
+        if (!this.licensed) {
+          process.stdout.write(pc.yellow('  License required. Run /activate <token> to activate.\n'))
+          break
+        }
         let sessionId = parts[1]
         if (!sessionId) {
           process.stdout.write(pc.yellow('Usage: /session <id>\n'))
@@ -163,6 +226,10 @@ export class CLI {
         if (!ok) process.stdout.write(pc.red(`Session "${sessionId}" not found.\n`))
         break
       }
+
+      case '/activate':
+        await this.handleActivate(parts.slice(1).join(' '), rl)
+        break
 
       case '/exit':
       case '/quit':
@@ -175,6 +242,40 @@ export class CLI {
           return this.handleCommand(`/session ${sessionId}`, rl)
         }
         process.stdout.write(pc.red(`Unknown command: ${command}\n`))
+    }
+  }
+
+  private async handleActivate(tokenArg: string, rl: ReturnType<typeof createInterface>): Promise<void> {
+    let token = tokenArg.trim()
+
+    if (!token) {
+      token = await new Promise<string>((resolve) => {
+        rl.question(pc.dim('  Activation token: '), (answer) => resolve(answer.trim()))
+      })
+      if (!token) {
+        process.stdout.write(pc.yellow('  No token provided.\n'))
+        return
+      }
+    }
+
+    process.stdout.write('\n')
+
+    const result = await activateLicense(token, (status) => {
+      process.stdout.write(`  ${pc.dim(status)}\n`)
+    })
+
+    if (result.ok) {
+      this.licensed = true
+      rl.setPrompt(prompt(true))
+      process.stdout.write(pc.green('  ✓ License activated successfully!\n'))
+      if (result.warnings?.length) {
+        for (const w of result.warnings) {
+          process.stdout.write(pc.yellow(`  ⚠ ${w}\n`))
+        }
+      }
+      process.stdout.write('\n')
+    } else {
+      process.stdout.write(pc.red(`  ✗ Activation failed: ${result.message}\n\n`))
     }
   }
 }

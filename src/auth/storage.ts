@@ -1,20 +1,41 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
-import { join } from 'path'
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, unlinkSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { homedir } from 'node:os'
+import { tmpdir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 
-export class AuthStorage {
-  private dir: string
+export const LICENSE_FILE_NAME = 'license.lic'
 
-  constructor(storageDir: string) {
-    this.dir = join(storageDir, 'licenses')
-    if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true })
-  }
+export function licenseDir(): string {
+  return join(homedir(), '.locus')
+}
 
-  save(key: string, data: string): void {
-    writeFileSync(join(this.dir, key), data, 'utf-8')
-  }
+export function licensePath(): string {
+  return join(licenseDir(), LICENSE_FILE_NAME)
+}
 
-  load(key: string): string | null {
-    const path = join(this.dir, key)
-    return existsSync(path) ? readFileSync(path, 'utf-8') : null
-  }
+function ensureDir(dir: string): void {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+}
+
+export function read(): string | null {
+  const path = licensePath()
+  if (!existsSync(path)) return null
+  return readFileSync(path, 'utf-8')
+}
+
+export function write(value: string): void {
+  const path = licensePath()
+  ensureDir(dirname(path))
+
+  const tmp = join(tmpdir(), `.license_${randomBytes(4).toString('hex')}_${Date.now()}.tmp`)
+  writeFileSync(tmp, value, 'utf-8')
+  renameSync(tmp, path)
+}
+
+export function remove(): boolean {
+  const path = licensePath()
+  if (!existsSync(path)) return false
+  unlinkSync(path)
+  return true
 }

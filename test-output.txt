@@ -1,0 +1,35 @@
+[36m
+  ╔══════════════════════════════════╗
+  ║        locus v0.1.0               ║
+  ║   Local AI Coding Terminal       ║
+  ╚══════════════════════════════════╝
+[39m
+[1mRuntime Diagnostics[22m
+[2m──────────────────────────────────────────────────[22m
+  [2mPlatform:[22m    win32 (x64)
+  [2mRAM:[22m         16 GB total / 6 GB free
+  [2mCPU:[22m         Intel(R) Core(TM) i5-10310U CPU @ 1.70GHz (8 cores)
+  [2mllama.cpp:[22m   [32mfound[39m
+  [2mModel:[22m       [32mC:\Users\K  BRIAN\Desktop\colx\models\qwen2.5-coder-1.5b-instruct-q4_k_m.gguf[39m
+  [2mEndpoint:[22m    http://127.0.0.1:8080/v1
+[2m──────────────────────────────────────────────────[22m
+
+[2m  Runtime initialized
+[22m[2m  Starting llama-server... [22m[32m✓ (PID 13068)
+[39m[2m  Loading model[2m.[22m[2m[2m.[22m[2m[2m.[22m[2m [22m
+[32m  ✓ Model loaded ({"status":"ok"})
+
+[39m[33m  No license found.
+[39m[36m
+  ╔══════════════════════════════╗
+  ║        locus v0.1            ║
+  ║   Local AI Coding Terminal   ║
+  ╚══════════════════════════════╝
+[39m
+[33m  Run /activate <token> to activate your license.
+
+[39m[33mlocus [unlicensed][39m[2m > [22m[33m  License required. Run /activate <token> to activate.
+[39m[33mlocus [unlicensed][39m[2m > [22m[2m
+Goodbye!
+[22m
+=== EXIT: 0 ===

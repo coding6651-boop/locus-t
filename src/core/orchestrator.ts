@@ -1,9 +1,8 @@
 import type { Message } from '../providers/types.js'
 import { createSession, type Session } from './session.js'
 import { PromptBuilder } from './prompt-builder.js'
-import { ContextEngine } from './context-engine.js'
+import { ContextEngine } from './context-engine/index.js'
 import { InferenceEngine } from '../ai/inference.js'
-import { getToolDefinitions, getTool } from '../tools/registry.js'
 import type { LLMProvider } from '../providers/types.js'
 import { SessionStore } from '../memory/store.js'
 import { getConfig } from '../runtime/state.js'
@@ -48,46 +47,27 @@ export class Orchestrator {
     }
   }
 
+  private async buildContext(input: string): Promise<void> {
+    const ctx = await this.contextEngine.selectContext(input)
+    this.promptBuilder.setFileContext(ctx)
+    const systemMsg = this.promptBuilder.buildSystem()
+    this.contextEngine.setSystemMessage(systemMsg)
+  }
+
   async run(input: string): Promise<string> {
+    await this.buildContext(input)
     this.session.messages.push(this.promptBuilder.buildUser(input))
-    const tools = getToolDefinitions()
 
     for (let i = 0; i < this.maxIterations; i++) {
       const pruned = this.contextEngine.prune(this.session.messages)
-      const response = await this.inference.chat(pruned, tools)
+      const response = await this.inference.chat(pruned)
 
-      if (response.tool_calls?.length) {
-        this.session.messages.push({
-          role: 'assistant',
-          content: response.content,
-          tool_calls: response.tool_calls,
-        })
-
-        for (const tc of response.tool_calls) {
-          const tool = getTool(tc.function.name)
-          if (!tool) {
-            this.session.messages.push({ role: 'tool', tool_call_id: tc.id, content: `Unknown tool: ${tc.function.name}` })
-            continue
-          }
-
-          let args: Record<string, unknown>
-          try { args = JSON.parse(tc.function.arguments) } catch {
-            this.session.messages.push({ role: 'tool', tool_call_id: tc.id, content: `Invalid JSON: ${tc.function.arguments}` })
-            continue
-          }
-
-          const result = await tool.handler(args)
-          const truncated = this.contextEngine.truncateToolResult(result)
-          this.session.messages.push({ role: 'tool', tool_call_id: tc.id, content: truncated })
-        }
-      } else {
-        const content = response.content ?? ''
-        this.session.messages.push({ role: 'assistant', content })
-        this.session.turns++
-        this.session.updatedAt = new Date().toISOString()
-        this.store.save(this.session)
-        return content
-      }
+      const content = response.content ?? ''
+      this.session.messages.push({ role: 'assistant', content })
+      this.session.turns++
+      this.session.updatedAt = new Date().toISOString()
+      this.store.save(this.session)
+      return content
     }
 
     this.session.updatedAt = new Date().toISOString()
@@ -100,45 +80,19 @@ export class Orchestrator {
     onToken?: (token: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
+    await this.buildContext(input)
     this.session.messages.push(this.promptBuilder.buildUser(input))
-    const tools = getToolDefinitions()
 
     for (let i = 0; i < this.maxIterations; i++) {
       const pruned = this.contextEngine.prune(this.session.messages)
-      const response = await this.inference.chatStream(pruned, tools, onToken, { signal })
+      const response = await this.inference.chatStream(pruned, undefined, onToken, { signal })
 
-      if (response.tool_calls?.length) {
-        this.session.messages.push({
-          role: 'assistant',
-          content: response.content,
-          tool_calls: response.tool_calls,
-        })
-
-        for (const tc of response.tool_calls) {
-          const tool = getTool(tc.function.name)
-          if (!tool) {
-            this.session.messages.push({ role: 'tool', tool_call_id: tc.id, content: `Unknown tool: ${tc.function.name}` })
-            continue
-          }
-
-          let args: Record<string, unknown>
-          try { args = JSON.parse(tc.function.arguments) } catch {
-            this.session.messages.push({ role: 'tool', tool_call_id: tc.id, content: `Invalid JSON: ${tc.function.arguments}` })
-            continue
-          }
-
-          const result = await tool.handler(args)
-          const truncated = this.contextEngine.truncateToolResult(result)
-          this.session.messages.push({ role: 'tool', tool_call_id: tc.id, content: truncated })
-        }
-      } else {
-        const content = response.content ?? ''
-        this.session.messages.push({ role: 'assistant', content })
-        this.session.turns++
-        this.session.updatedAt = new Date().toISOString()
-        this.store.save(this.session)
-        return content
-      }
+      const content = response.content ?? ''
+      this.session.messages.push({ role: 'assistant', content })
+      this.session.turns++
+      this.session.updatedAt = new Date().toISOString()
+      this.store.save(this.session)
+      return content
     }
 
     this.session.updatedAt = new Date().toISOString()
