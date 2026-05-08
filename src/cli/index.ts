@@ -53,10 +53,16 @@ export class CLI {
       let escTimer: ReturnType<typeof setTimeout> | null = null
       let escHinted = false
 
+      const showEscHint = () => {
+        if (escHinted) return
+        escHinted = true
+        process.stderr.write(pc.dim('⏎ ESC again within 7s to cancel\n'))
+      }
+
       const clearEscHint = () => {
         if (!escHinted) return
         escHinted = false
-        process.stdout.write('\x1b[1A\x1b[2K\r')
+        process.stderr.write('\x1b[1A\x1b[2K\r')
       }
 
       const wasRaw = process.stdin.isRaw
@@ -66,8 +72,7 @@ export class CLI {
       const onStdinData = (chunk: Buffer) => {
         if (chunk.length === 1 && chunk[0] === ESC_BYTE) {
           if (!escHinted) {
-            escHinted = true
-            process.stdout.write(pc.dim('\n⏎ ESC again within 7s to cancel'))
+            showEscHint()
             escTimer = setTimeout(() => { clearEscHint(); escTimer = null }, 7000)
           } else {
             clearEscHint()
