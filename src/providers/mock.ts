@@ -1,5 +1,5 @@
 import { BaseProvider } from './provider.js'
-import type { LLMConfig, LLMResponse, Message, ToolCall, ToolDefinition } from './types.js'
+import type { LLMConfig, LLMResponse, Message, ToolDefinition } from './types.js'
 
 const MOCK_RESPONSE = `Here's a simple Python calculator:
 
@@ -47,11 +47,13 @@ export class MockProvider extends BaseProvider {
     _messages: Message[],
     _tools?: ToolDefinition[],
     onToken?: (token: string) => void,
+    signal?: AbortSignal,
   ): Promise<LLMResponse> {
     if (this.fail) throw new Error('Mock provider: simulated failure')
 
     const tokens = MOCK_RESPONSE.split(/(?<=\s)/)
     for (const token of tokens) {
+      if (signal?.aborted) throw new DOMException('Stream cancelled', 'AbortError')
       await new Promise((r) => setTimeout(r, 10))
       onToken?.(token)
     }

@@ -4,12 +4,13 @@ import type { LLMProvider, LLMResponse, Message, ToolDefinition } from '../provi
 export interface InferenceOptions {
   retries?: number
   timeoutMs?: number
+  signal?: AbortSignal
 }
 
-const DEFAULT_OPTIONS: Required<InferenceOptions> = {
+const DEFAULT_OPTIONS = {
   retries: 2,
   timeoutMs: 120_000,
-}
+} satisfies Required<Omit<InferenceOptions, 'signal'>>
 
 export class InferenceEngine {
   private provider: LLMProvider
@@ -62,14 +63,20 @@ export class InferenceEngine {
       try {
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), opts.timeoutMs)
+        const userSignal = opts.signal
+
+        const onAbort = () => { controller.abort() }
+        userSignal?.addEventListener('abort', onAbort, { once: true })
 
         try {
-          const result = await this.provider.chatStream(messages, tools, onToken)
+          const result = await this.provider.chatStream(messages, tools, onToken, controller.signal)
           return result
         } finally {
           clearTimeout(timer)
+          userSignal?.removeEventListener('abort', onAbort)
         }
       } catch (err: any) {
+        if (err.name === 'AbortError' && opts.signal?.aborted) throw err
         lastErr = err
         if (attempt < opts.retries) {
           const delay = Math.min(1000 * Math.pow(2, attempt), 8000)

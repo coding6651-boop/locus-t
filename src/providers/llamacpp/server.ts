@@ -53,10 +53,15 @@ export class LlamaCppServer {
       args.push('-ngl', String(config.nGpuLayers))
     }
 
-    this.proc = spawn(binaryPath, args, {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true,
-    })
+    const isWin = process.platform === 'win32'
+    const hasSpaces = [binaryPath, ...args].some((a) => a.includes(' '))
+
+    if (isWin && hasSpaces) {
+      const escaped = [binaryPath, ...args].map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')
+      this.proc = spawn(escaped, [], { shell: true, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
+    } else {
+      this.proc = spawn(binaryPath, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+    }
 
     this.startTime = Date.now()
 

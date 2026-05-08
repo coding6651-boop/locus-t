@@ -40,6 +40,7 @@ export class LlamaCppProvider extends BaseProvider {
     messages: Message[],
     tools?: ToolDefinition[],
     onToken?: (token: string) => void,
+    signal?: AbortSignal,
   ): Promise<LLMResponse> {
     const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
       model: this.config.model,
@@ -50,7 +51,7 @@ export class LlamaCppProvider extends BaseProvider {
     }
     if (tools?.length) params.tools = tools as any
 
-    const stream = await this.client.chat.completions.create(params)
+    const stream = await this.client.chat.completions.create(params, { signal })
 
     let content = ''
     const accs = new Map<number, { id: string; type: 'function'; function: { name: string; arguments: string } }>()
@@ -83,6 +84,8 @@ export class LlamaCppProvider extends BaseProvider {
           .map((t) => ({ id: t.id, type: 'function' as const, function: { name: t.function.name, arguments: t.function.arguments } }))
         return { content: content || null, tool_calls: tool_calls.length ? tool_calls : undefined }
       }
+
+      if (choice.finish_reason === 'stop') break
     }
 
     return { content: content || null }

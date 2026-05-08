@@ -41,5 +41,6 @@ export interface LLMProvider {
     messages: Message[],
     tools?: ToolDefinition[],
     onToken?: (token: string) => void,
+    signal?: AbortSignal,
   ): Promise<LLMResponse>
 }

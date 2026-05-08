@@ -50,16 +50,23 @@ export function findModel(customPath?: string): string | null {
     join(process.cwd(), 'models'),
   ]
 
+  let best: { path: string; size: number } | null = null
+
   for (const dir of searchDirs) {
     if (!existsSync(dir)) continue
     try {
-      const entries = readdirSync(dir)
-      const model = entries.find((f) => f.endsWith('.gguf'))
-      if (model) return join(dir, model)
+      for (const f of readdirSync(dir)) {
+        if (!f.endsWith('.gguf')) continue
+        const full = join(dir, f)
+        try {
+          const size = statSync(full).size
+          if (!best || size > best.size) best = { path: full, size }
+        } catch { }
+      }
     } catch { }
   }
 
-  return null
+  return best?.path ?? null
 }
 
 export function findModels(): { path: string; name: string; sizeBytes: number }[] {

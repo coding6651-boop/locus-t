@@ -21,6 +21,7 @@ const HELP = `${pc.dim('Commands:')}
 
 export class CLI {
   private orchestrator: Orchestrator
+  private currentAbort: AbortController | null = null
 
   constructor(provider: LLMProvider) {
     this.orchestrator = new Orchestrator(provider)
@@ -44,14 +45,34 @@ export class CLI {
       }
 
       rl.pause()
+      const ac = new AbortController()
+      this.currentAbort = ac
+
       try {
-        const response = await this.orchestrator.run(t)
-        process.stdout.write('\n' + response + '\n')
+        process.stdout.write('\n')
+        const response = await this.orchestrator.runStream(t, (token) => {
+          process.stdout.write(token)
+        }, ac.signal)
+        process.stdout.write('\n')
       } catch (err: any) {
-        process.stdout.write(pc.red(`\nError: ${err.message}\n`))
+        if (err.name === 'AbortError' || err.name === 'CanceledError') {
+          process.stdout.write('\n' + pc.yellow('Interrupted.\n'))
+        } else {
+          process.stdout.write(pc.red(`\nError: ${err.message}\n`))
+        }
+      } finally {
+        this.currentAbort = null
       }
       rl.prompt()
       rl.resume()
+    })
+
+    rl.on('SIGINT', () => {
+      if (this.currentAbort) {
+        this.currentAbort.abort()
+      } else {
+        rl.close()
+      }
     })
 
     rl.on('close', () => { process.stdout.write(pc.dim('\nGoodbye!\n')); process.exit(0) })
@@ -90,11 +111,12 @@ export class CLI {
       }
 
       case '/session': {
-        const sessionId = parts[1]
+        let sessionId = parts[1]
         if (!sessionId) {
           process.stdout.write(pc.yellow('Usage: /session <id>\n'))
           break
         }
+        sessionId = sessionId.replace(/^<|>$/g, '')
         const ok = this.orchestrator.switchSession(sessionId)
         if (!ok) process.stdout.write(pc.red(`Session "${sessionId}" not found.\n`))
         break
@@ -106,6 +128,10 @@ export class CLI {
         break
 
       default:
+        if (command.startsWith('/session') && command !== '/session') {
+          const sessionId = command.slice(1)
+          return this.handleCommand(`/session ${sessionId}`, rl)
+        }
         process.stdout.write(pc.red(`Unknown command: ${command}\n`))
     }
   }
