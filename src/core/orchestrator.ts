@@ -170,6 +170,21 @@ export class Orchestrator {
     this.session = saved
     this.initSystemMessage()
     process.stdout.write(pc.green(`Switched to session ${sessionId} (${saved.turns} turns)\n`))
+    this.printConversation()
     return true
+  }
+
+  private printConversation(): void {
+    const msgs = this.session.messages
+    if (msgs.length === 0) return
+
+    process.stdout.write(pc.dim('  ' + '─'.repeat(46) + '\n'))
+    for (const m of msgs) {
+      if (m.role === 'system') continue
+      const label = m.role === 'user' ? pc.cyan('You     ') : pc.green('locus   ')
+      const preview = (m.content ?? '(tool call)').split('\n')[0].slice(0, 80)
+      process.stdout.write(`  ${label} ${preview}\n`)
+    }
+    process.stdout.write(pc.dim('  ' + '─'.repeat(46) + '\n'))
   }
 }
