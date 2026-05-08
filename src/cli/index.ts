@@ -4,6 +4,7 @@ import { Orchestrator } from '../core/orchestrator.js'
 import type { LLMProvider } from '../providers/types.js'
 import { verifyLicense } from '../auth/verification.js'
 import { activateLicense } from '../auth/activation.js'
+import { getConfig } from '../runtime/state.js'
 
 const BANNER = pc.cyan(`
   ╔══════════════════════════════╗
@@ -20,6 +21,12 @@ const HELP = `${pc.dim('Commands:')}
   ${pc.green('/new')}        Start a new session
   ${pc.green('/activate')}   Activate license with a token
   ${pc.green('/exit')}       Exit
+`
+
+const HELP_LIMITED = `${pc.dim('Commands:')}
+  ${pc.green('/activate <token>')} Activate your license
+  ${pc.green('/help')}             Show this help
+  ${pc.green('/exit')}             Exit
 `
 
 const ESC_BYTE = 27
@@ -40,7 +47,7 @@ export class CLI {
   }
 
   async start(): Promise<void> {
-    if (process.env.COLX_DISABLE_LICENSE_GATE) {
+    if (getConfig().disableLicenseGate || process.env.LOCUS_DISABLE_LICENSE_GATE === 'true') {
       this.licensed = true
     } else {
       const result = await verifyLicense()
@@ -60,7 +67,8 @@ export class CLI {
     process.stdout.write(BANNER + '\n')
 
     if (!this.licensed) {
-      process.stdout.write(pc.yellow('  Run /activate <token> to activate your license.\n\n'))
+      process.stdout.write(pc.yellow('  License required. Available commands:\n'))
+      process.stdout.write(HELP_LIMITED + '\n')
     } else {
       process.stdout.write(HELP + '\n')
     }
@@ -78,7 +86,7 @@ export class CLI {
       }
 
       if (!this.licensed) {
-        process.stdout.write(pc.yellow('  License required. Run /activate <token> to activate.\n'))
+        process.stdout.write(pc.yellow('  License required. Only /activate and /help are available.\n'))
         rl.prompt()
         return
       }
@@ -172,32 +180,30 @@ export class CLI {
     const parts = cmd.split(/\s+/)
     const command = parts[0].toLowerCase()
 
+    if (!this.licensed && command !== '/help' && command !== '/activate' && command !== '/exit' && command !== '/quit') {
+      process.stdout.write(pc.yellow('  Not available in unlicensed mode. Use /activate or /help.\n'))
+      return
+    }
+
     switch (command) {
       case '/help':
-        process.stdout.write(HELP)
+        process.stdout.write(this.licensed ? HELP : HELP_LIMITED)
         break
 
       case '/clear':
+        if (!this.licensed) {
+          process.stdout.write(pc.yellow('  Not available in unlicensed mode. Use /activate or /help.\n'))
+          break
+        }
         console.clear()
         process.stdout.write(BANNER + '\n')
-        if (!this.licensed) {
-          process.stdout.write(pc.yellow('  Run /activate <token> to activate your license.\n\n'))
-        }
         break
 
       case '/new':
-        if (!this.licensed) {
-          process.stdout.write(pc.yellow('  License required. Run /activate <token> to activate.\n'))
-          break
-        }
         this.orchestrator.newSession()
         break
 
       case '/sessions': {
-        if (!this.licensed) {
-          process.stdout.write(pc.yellow('  License required. Run /activate <token> to activate.\n'))
-          break
-        }
         const sessions = this.orchestrator.listSessions()
         if (sessions.length === 0) {
           process.stdout.write(pc.dim('No saved sessions.\n'))
@@ -212,10 +218,6 @@ export class CLI {
       }
 
       case '/session': {
-        if (!this.licensed) {
-          process.stdout.write(pc.yellow('  License required. Run /activate <token> to activate.\n'))
-          break
-        }
         let sessionId = parts[1]
         if (!sessionId) {
           process.stdout.write(pc.yellow('Usage: /session <id>\n'))

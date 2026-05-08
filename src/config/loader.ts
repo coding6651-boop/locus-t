@@ -37,5 +37,10 @@ export function loadConfig(): AppConfig {
   config.nCtx = parseInt(process.env.LOCUS_N_CTX || String(config.nCtx), 10)
   config.nGpuLayers = parseInt(process.env.LOCUS_N_GPU_LAYERS || String(config.nGpuLayers), 10)
 
+  config.authUrl = process.env.LOCUS_AUTH_URL || config.authUrl
+  config.authTimeoutMs = parseInt(process.env.LOCUS_AUTH_TIMEOUT_MS || String(config.authTimeoutMs), 10)
+  config.authMaxRetries = parseInt(process.env.LOCUS_AUTH_MAX_RETRIES || String(config.authMaxRetries), 10)
+  config.disableLicenseGate = process.env.LOCUS_DISABLE_LICENSE_GATE === 'true' || config.disableLicenseGate
+
   return config
 }

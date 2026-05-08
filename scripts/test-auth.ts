@@ -11,6 +11,8 @@ import { write as storageWrite, read as storageRead, remove as storageRemove, li
 import { verifyLicense, verifyPayload } from '../src/auth/verification.js'
 import { activateLicense } from '../src/auth/activation.js'
 import type { LicensePayload, VerifyResult } from '../src/auth/types.js'
+import { loadConfig } from '../src/config/loader.js'
+import { setConfig } from '../src/runtime/state.js'
 
 const PRIVATE_KEY_BASE64 = 'MC4CAQAwBQYDK2VwBCIEIEFoMeq9Llpv/0TvhO8uUlimCN3IERKkoPqsKStH1feB'
 
@@ -213,10 +215,12 @@ console.log('\n── activation.ts ──')
 // Start a mock activation server
 const mockServer = await startMockServer()
 const port = (mockServer.address() as any).port
-const originalUrl = process.env.COLX_AUTH_URL
-process.env.COLX_AUTH_URL = `http://127.0.0.1:${port}/v1/activate`
-process.env.COLX_AUTH_TIMEOUT_MS = '5000'
-process.env.COLX_AUTH_MAX_RETRIES = '1'
+
+// Set activation env vars and reload config before any activation calls
+process.env.LOCUS_AUTH_URL = `http://127.0.0.1:${port}/v1/activate`
+process.env.LOCUS_AUTH_TIMEOUT_MS = '5000'
+process.env.LOCUS_AUTH_MAX_RETRIES = '1'
+setConfig(loadConfig())
 
 // 5a. Successful activation
 const activationResult = await activateLicense('TEST-ABCD-1234', (status) => {
@@ -246,15 +250,15 @@ const badToken = await activateLicense('BAD-TOKEN')
 assertNotOk(badToken, 'token_not_found', 'activateLicense fails with invalid token')
 
 // 5d. Activation when server is unreachable
-process.env.COLX_AUTH_URL = 'http://127.0.0.1:1/v1/activate'
+process.env.LOCUS_AUTH_URL = 'http://127.0.0.1:1/v1/activate'
+setConfig(loadConfig())
 const unreachable = await activateLicense('ANY-TOKEN')
 assertNotOk(unreachable, 'network_error', 'activateLicense fails when server unreachable')
 
 // Restore env
-if (originalUrl) process.env.COLX_AUTH_URL = originalUrl
-else delete process.env.COLX_AUTH_URL
-delete process.env.COLX_AUTH_TIMEOUT_MS
-delete process.env.COLX_AUTH_MAX_RETRIES
+delete process.env.LOCUS_AUTH_URL
+delete process.env.LOCUS_AUTH_TIMEOUT_MS
+delete process.env.LOCUS_AUTH_MAX_RETRIES
 
 // Clean up
 storageRemove()

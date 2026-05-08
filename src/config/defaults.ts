@@ -14,6 +14,10 @@ export interface AppConfig {
   nCtx: number
   nGpuLayers: number
   verbose: boolean
+  authUrl: string
+  authTimeoutMs: number
+  authMaxRetries: number
+  disableLicenseGate: boolean
 }
 
 export const defaults: AppConfig = {
@@ -29,4 +33,8 @@ export const defaults: AppConfig = {
   nCtx: 4096,
   nGpuLayers: 0,
   verbose: false,
+  authUrl: 'https://api.locus.ai/v1/activate',
+  authTimeoutMs: 30000,
+  authMaxRetries: 3,
+  disableLicenseGate: false,
 }

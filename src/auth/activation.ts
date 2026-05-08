@@ -3,8 +3,7 @@ import type { LicensePayload } from './types.js'
 import { getDeviceId } from './device.js'
 import { verifyPayload } from './verification.js'
 import { write } from './storage.js'
-
-const DEFAULT_ACTIVATE_URL = 'https://api.colx.ai/v1/activate'
+import { getConfig } from '../runtime/state.js'
 
 function isNetworkError(message: string): boolean {
   const patterns = ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'fetch failed', 'abort', 'unable to reach']
@@ -16,9 +15,10 @@ export async function activateLicense(
   onProgress?: (status: string) => void,
 ): Promise<ActivationResult> {
   const device = getDeviceId()
-  const activateUrl = process.env.COLX_AUTH_URL || DEFAULT_ACTIVATE_URL
-  const maxRetries = parseInt(process.env.COLX_AUTH_MAX_RETRIES || '3', 10)
-  const timeoutMs = parseInt(process.env.COLX_AUTH_TIMEOUT_MS || '30000', 10)
+  const cfg = getConfig()
+  const activateUrl = process.env.LOCUS_AUTH_URL || cfg.authUrl
+  const maxRetries = parseInt(process.env.LOCUS_AUTH_MAX_RETRIES || String(cfg.authMaxRetries), 10)
+  const timeoutMs = parseInt(process.env.LOCUS_AUTH_TIMEOUT_MS || String(cfg.authTimeoutMs), 10)
 
   let lastError = ''
 

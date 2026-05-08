@@ -7,7 +7,7 @@
 [1mRuntime Diagnostics[22m
 [2m──────────────────────────────────────────────────[22m
   [2mPlatform:[22m    win32 (x64)
-  [2mRAM:[22m         16 GB total / 6 GB free
+  [2mRAM:[22m         16 GB total / 4 GB free
   [2mCPU:[22m         Intel(R) Core(TM) i5-10310U CPU @ 1.70GHz (8 cores)
   [2mllama.cpp:[22m   [32mfound[39m
   [2mModel:[22m       [32mC:\Users\K  BRIAN\Desktop\colx\models\qwen2.5-coder-1.5b-instruct-q4_k_m.gguf[39m
@@ -15,21 +15,47 @@
 [2m──────────────────────────────────────────────────[22m
 
 [2m  Runtime initialized
-[22m[2m  Starting llama-server... [22m[32m✓ (PID 13068)
+[22m[2m  Starting llama-server... [22m[32m✓ (PID 10588)
 [39m[2m  Loading model[2m.[22m[2m[2m.[22m[2m[2m.[22m[2m [22m
 [32m  ✓ Model loaded ({"status":"ok"})
 
-[39m[33m  No license found.
 [39m[36m
   ╔══════════════════════════════╗
   ║        locus v0.1            ║
   ║   Local AI Coding Terminal   ║
   ╚══════════════════════════════╝
 [39m
-[33m  Run /activate <token> to activate your license.
+[2mCommands:[22m
+  [32m/help[39m       Show help
+  [32m/clear[39m      Clear screen
+  [32m/sessions[39m   List saved sessions
+  [32m/session <id>[39m Resume a session by ID
+  [32m/new[39m        Start a new session
+  [32m/activate[39m   Activate license with a token
+  [32m/exit[39m       Exit
 
-[39m[33mlocus [unlicensed][39m[2m > [22m[33m  License required. Run /activate <token> to activate.
-[39m[33mlocus [unlicensed][39m[2m > [22m[2m
+[32mlocus[39m[2m > [22m
+The tokenizer in the `src/ai/tokenizer.ts` file is designed to estimate the number of tokens in a given text string. It calculates the average number of characters per token based on a predefined constant `AVG_CHARS_PER_TOKEN`, which is set to 4. The `estimateTokens` function takes a string as input and returns the estimated number of tokens by dividing the length of the string by the average number of characters per token.
+
+The `truncateToTokens` function is used to truncate a given text string to a specified number of tokens. It calculates the maximum number of characters that can be represented by the specified number of tokens by multiplying the maximum number of tokens by the average number of characters per token. If the length of the input string is less than or equal to the maximum number of characters, the function returns the input string as is. Otherwise, it returns a truncated version of the string with an ellipsis (`...(truncated)`) at the end.
+
+Here's an example of how the tokenizer might be used in a code snippet:
+
+```typescript
+import { estimateTokens, truncateToTokens } from './ai/tokenizer';
+
+const text = "This is a sample text string that needs to be tokenized.";
+const maxTokens = 5;
+
+const estimatedTokens = estimateTokens(text);
+console.log(`Estimated tokens: ${estimatedTokens}`);
+
+const truncatedText = truncateToTokens(text, maxTokens);
+console.log(`Truncated text: ${truncatedText}`);
+```
+
+In this example, the `estimateTokens` function is used to estimate the number of tokens in the `text` string, which is 11. The `truncateToTokens` function is then used to truncate the `text` string to 5 tokens, resulting in the truncated version "This is a sample text string that needs to be tokenized...".
+[32mlocus[39m[2m > [22m[2m
 Goodbye!
 [22m
 === EXIT: 0 ===

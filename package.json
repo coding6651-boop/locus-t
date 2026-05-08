@@ -12,7 +12,8 @@
     "dev": "tsx bin/locus.ts",
     "test": "tsx scripts/test-inference.ts",
     "test:mock": "tsx scripts/test-inference.ts --mock",
-    "test:verify": "tsx scripts/test-inference.ts --mock"
+    "test:verify": "tsx scripts/test-inference.ts --mock",
+    "activate": "tsx scripts/activate.ts"
   },
   "dependencies": {
     "glob": "^11.0.0",
