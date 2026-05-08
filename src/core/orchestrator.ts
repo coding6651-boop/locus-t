@@ -33,13 +33,7 @@ export class Orchestrator {
         this.session = createSession()
       }
     } else {
-      const last = this.store.last()
-      if (last && last.turns > 0) {
-        this.session = last
-        process.stdout.write(pc.dim(`  Continuing last session ${last.id} (${last.turns} turns)\n`))
-      } else {
-        this.session = createSession()
-      }
+      this.session = createSession()
     }
 
     this.initSystemMessage()
@@ -156,14 +150,14 @@ export class Orchestrator {
     return this.store.list()
   }
 
-  reset(): void {
+  newSession(): void {
     if (this.session.turns > 0) {
       this.session.updatedAt = new Date().toISOString()
       this.store.save(this.session)
     }
     this.session = createSession()
     this.contextEngine.setSystemMessage(this.promptBuilder.buildSystem())
-    process.stdout.write(pc.green('Session reset.\n'))
+    process.stdout.write(pc.green(`New session started: ${this.session.id}\n`))
   }
 
   switchSession(sessionId: string): boolean {

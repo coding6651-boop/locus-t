@@ -15,7 +15,7 @@ const HELP = `${pc.dim('Commands:')}
   ${pc.green('/clear')}      Clear screen
   ${pc.green('/sessions')}   List saved sessions
   ${pc.green('/session <id>')} Resume a session by ID
-  ${pc.green('/reset')}      Reset session
+  ${pc.green('/new')}        Start a new session
   ${pc.green('/exit')}       Exit
 `
 
@@ -92,8 +92,8 @@ export class CLI {
         process.stdout.write(BANNER)
         break
 
-      case '/reset':
-        this.orchestrator.reset()
+      case '/new':
+        this.orchestrator.newSession()
         break
 
       case '/sessions': {
