@@ -1,5 +1,7 @@
 import pc from 'picocolors'
 import { createInterface } from 'readline'
+import { homedir } from 'os'
+import { join } from 'path'
 import { Orchestrator } from '../core/orchestrator.js'
 import type { LLMProvider } from '../providers/types.js'
 import { RuntimeManager } from '../runtime/manager.js'
@@ -306,11 +308,12 @@ export class CLI {
 
     // ── Check model state ──
     const modelPath = findModel()
+    const modelsDirPath = join(homedir(), '.locus', 'models')
     if (modelPath) {
       const name = modelPath.split(/[/\\]/).pop() ?? modelPath
       process.stdout.write(`  Model:     ${pc.green('✓')} ${name}\n`)
     } else {
-      process.stdout.write(`  Model:     ${pc.yellow('not found')}  ${pc.dim('place a .gguf in ' + runtimeDir().replace('runtime', 'models'))}\n`)
+      process.stdout.write(`  Model:     ${pc.yellow('not found')}  ${pc.dim(`place a .gguf in ${modelsDirPath}`)}\n`)
     }
 
     // ── If engine needs install ──
@@ -392,7 +395,7 @@ export class CLI {
     } else if (!modelPath2) {
       process.stdout.write('\n')
       process.stdout.write(pc.yellow('  Model not found. Place a .gguf file and run /setup again.\n'))
-      process.stdout.write(pc.dim(`  Expected location: ${runtimeDir().replace('runtime', 'models')}\n\n`))
+      process.stdout.write(pc.dim(`  Expected location: ${join(homedir(), '.locus', 'models')}\n\n`))
     } else if (mgr.isRunning) {
       process.stdout.write(pc.green('  ✓ Local AI ready\n\n'))
       rl?.setPrompt(prompt(this.licensed, this.ready))

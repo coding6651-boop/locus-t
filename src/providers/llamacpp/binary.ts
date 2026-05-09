@@ -52,8 +52,6 @@ export function findModel(customPath?: string): string | null {
 
   const searchDirs = [
     join(homedir(), '.locus', 'models'),
-    process.cwd(),
-    join(process.cwd(), 'models'),
   ]
 
   let best: { path: string; size: number } | null = null
@@ -79,7 +77,6 @@ export function findModels(): { path: string; name: string; sizeBytes: number }[
   const results: { path: string; name: string; sizeBytes: number }[] = []
   const dirs = [
     join(homedir(), '.locus', 'models'),
-    join(process.cwd(), 'models'),
   ]
 
   for (const dir of dirs) {
