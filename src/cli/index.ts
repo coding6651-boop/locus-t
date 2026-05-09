@@ -28,16 +28,25 @@ const HELP = `${pc.dim('Commands:')}
 
 const HELP_LIMITED = `${pc.dim('Commands:')}
   ${pc.green('/activate <token>')} Activate your license
+  ${pc.green('/setup')}      Download and install llama.cpp runtime
   ${pc.green('/help')}             Show this help
   ${pc.green('/exit')}             Exit
 `
 
+const HELP_UNCONFIGURED = `${pc.dim('Commands:')}
+  ${pc.green('/setup')}      Download and install llama.cpp runtime
+  ${pc.green('/activate')}   Activate license with a token
+  ${pc.green('/help')}       Show this help
+  ${pc.green('/exit')}       Exit
+`
+
 const ESC_BYTE = 27
 
-function prompt(licensed: boolean): string {
+function prompt(licensed: boolean, ready: boolean): string {
   const p = 'locus'
-  if (licensed) return pc.green(p) + pc.dim(' > ')
-  return pc.yellow(p + ' [unlicensed]') + pc.dim(' > ')
+  if (!licensed) return pc.yellow(p + ' unlicensed') + pc.dim(' > ')
+  if (!ready) return pc.yellow(p + ' notsetup') + pc.dim(' > ')
+  return pc.green(p) + pc.dim(' > ')
 }
 
 export class CLI {
@@ -45,10 +54,12 @@ export class CLI {
   private runtime: RuntimeManager | null = null
   private currentAbort: AbortController | null = null
   private licensed = false
+  private ready = false
 
-  constructor(provider: LLMProvider, runtime?: RuntimeManager) {
+  constructor(provider: LLMProvider, runtime?: RuntimeManager, ready = false) {
     this.orchestrator = new Orchestrator(provider)
     this.runtime = runtime ?? null
+    this.ready = ready
   }
 
   async start(): Promise<void> {
@@ -66,7 +77,7 @@ export class CLI {
     const rl = createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: prompt(this.licensed),
+      prompt: prompt(this.licensed, this.ready),
     })
 
     process.stdout.write(BANNER + '\n')
@@ -74,6 +85,9 @@ export class CLI {
     if (!this.licensed) {
       process.stdout.write(pc.yellow('  License required. Available commands:\n'))
       process.stdout.write(HELP_LIMITED + '\n')
+    } else if (!this.ready) {
+      process.stdout.write(pc.yellow('  No running runtime. Available commands:\n'))
+      process.stdout.write(HELP_UNCONFIGURED + '\n')
     } else {
       process.stdout.write(HELP + '\n')
     }
@@ -91,7 +105,13 @@ export class CLI {
       }
 
       if (!this.licensed) {
-        process.stdout.write(pc.yellow('  License required. Only /activate and /help are available.\n'))
+        process.stdout.write(pc.yellow('  License required. Only /activate, /setup, and /help are available.\n'))
+        rl.prompt()
+        return
+      }
+
+      if (!this.ready) {
+        process.stdout.write(pc.yellow('  No runtime configured. Use /setup to install one, or /help for commands.\n'))
         rl.prompt()
         return
       }
@@ -186,13 +206,20 @@ export class CLI {
     const command = parts[0].toLowerCase()
 
     if (!this.licensed && command !== '/help' && command !== '/activate' && command !== '/exit' && command !== '/quit' && command !== '/setup') {
-      process.stdout.write(pc.yellow('  Not available in unlicensed mode. Use /activate or /help.\n'))
+      process.stdout.write(pc.yellow('  Not available in unlicensed mode. Use /activate, /setup, or /help.\n'))
+      return
+    }
+
+    if (!this.ready && this.licensed && command !== '/setup' && command !== '/help' && command !== '/exit' && command !== '/quit' && command !== '/activate') {
+      process.stdout.write(pc.yellow('  AI features need a running runtime. Use /setup to install one.\n'))
       return
     }
 
     switch (command) {
       case '/help':
-        process.stdout.write(this.licensed ? HELP : HELP_LIMITED)
+        if (!this.licensed) process.stdout.write(HELP_LIMITED)
+        else if (!this.ready) process.stdout.write(HELP_UNCONFIGURED)
+        else process.stdout.write(HELP)
         break
 
       case '/clear':
@@ -302,7 +329,7 @@ export class CLI {
 
     if (result.ok) {
       this.licensed = true
-      rl.setPrompt(prompt(true))
+      rl.setPrompt(prompt(true, this.ready))
       process.stdout.write(pc.green('  ✓ License activated successfully!\n'))
       if (result.warnings?.length) {
         for (const w of result.warnings) {

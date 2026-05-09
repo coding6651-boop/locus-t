@@ -135,7 +135,6 @@ export async function bootstrap(): Promise<void> {
 
   if (!config.disableLicenseGate && licenseResult && !licenseResult.ok) {
     printActivationInstructions()
-    process.exit(1)
   }
 
   const runtime = new RuntimeManager()
@@ -190,18 +189,20 @@ export async function bootstrap(): Promise<void> {
     }
   }
 
+  let externalConnected = false
   if (!runtime.isRunning) {
     process.stdout.write(pc.dim(`  Connecting to ${config.baseURL}... `))
-    const connected = await runtime.connectToExternal(config.baseURL)
-    if (!connected) {
+    externalConnected = await runtime.connectToExternal(config.baseURL)
+    if (!externalConnected) {
       process.stdout.write(pc.red('✗ unreachable\n'))
       printInstructions()
-      process.exit(1)
+    } else {
+      process.stdout.write(pc.green('✓\n\n'))
     }
-    process.stdout.write(pc.green('✓ connected\n\n'))
   }
 
+  const ready = runtime.isRunning || externalConnected
   const provider = runtime.createClient({ ...config, baseURL: providerBaseUrl })
-  const cli = new CLI(provider, runtime)
+  const cli = new CLI(provider, runtime, ready)
   await cli.start()
 }

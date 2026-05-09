@@ -1,30 +1,63 @@
+import { Link } from "react-router-dom";
+
+const productLinks = [
+  { label: "Features", href: "/#features" },
+  { label: "Pricing", href: "/#pricing" },
+  { label: "Changelog", href: "/changelog" },
+] as const;
+
 export function Footer() {
+  const currentYear = new Date().getFullYear();
+
   return (
-    <footer className="py-12 md:py-16 px-5 md:px-6 border-t border-gray-100/50">
-      <div className="max-w-sm mx-auto text-center">
-        <img src="/locus-logo.png" alt="Locus" className="w-8 md:w-10 h-8 md:h-10 mx-auto mb-5 md:mb-6" />
-
-        <h2 className="text-xl md:text-3xl font-bold text-black mb-2 md:mb-3 tracking-tight">
-          Ready to code with AI?
-        </h2>
-
-        <p className="text-xs md:text-sm text-gray-400 mb-6 md:mb-8 leading-relaxed px-4">
-          Locus runs entirely on your machine. No cloud. No data leaks. Just you, your terminal, and AI.
-        </p>
-
-        <div className="flex items-center justify-center gap-3 flex-wrap">
-          <a href="#" className="btn-ios text-xs md:text-sm px-5 md:px-8 py-2.5 md:py-3">
-            Get a License
-          </a>
-          <a href="#terminal" className="btn-ios-outline text-xs md:text-sm px-5 md:px-8 py-2.5 md:py-3">
-            Watch the demo
-          </a>
+    <footer className="border-t border-black/5 py-10 sm:py-12 px-4 sm:px-6">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-6 mb-8">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <img src="/locus-logo.png" alt="Locus" className="w-6 h-6" />
+              <span className="font-semibold text-black text-sm">Locus</span>
+            </div>
+            <p className="text-black/25 text-xs">
+              Offline-first AI coding terminal.
+            </p>
+          </div>
+          <div>
+            <h4 className="text-xs font-semibold text-black mb-3">Product</h4>
+            <ul className="space-y-2">
+              {productLinks.map((link) =>
+                link.href.startsWith("/changelog") ? (
+                  <li key={link.label}>
+                    <Link
+                      to={link.href}
+                      className="text-black/30 hover:text-black text-xs transition-colors"
+                    >
+                      {link.label}
+                    </Link>
+                  </li>
+                ) : (
+                  <li key={link.label}>
+                    <a
+                      href={link.href}
+                      className="text-black/30 hover:text-black text-xs transition-colors"
+                    >
+                      {link.label}
+                    </a>
+                  </li>
+                )
+              )}
+            </ul>
+          </div>
         </div>
-
-        <div className="mt-10 md:mt-12 text-[10px] md:text-xs text-gray-300">
-          &copy; {new Date().getFullYear()} Locus. All rights reserved.
+        <div className="border-t border-black/5 pt-5 flex justify-between items-center gap-3">
+          <span className="text-black/20 text-xs">
+            &copy; {currentYear} Locus
+          </span>
+          <p className="text-black/20 text-xs">
+            Built for developers who ship.
+          </p>
         </div>
       </div>
     </footer>
-  )
+  );
 }

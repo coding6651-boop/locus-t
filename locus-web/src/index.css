@@ -5,65 +5,68 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    overflow-x: hidden;
   }
+
   body {
-    @apply bg-white text-black antialiased;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+    background: #fafafa;
+    color: #000;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    letter-spacing: -0.01em;
   }
+
   ::selection {
-    @apply bg-black/10;
+    background: rgba(0, 0, 0, 0.1);
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/60 backdrop-blur-xl border border-white/40 shadow-sm;
+  }
+
+  .glass-dark {
+    @apply bg-black/80 backdrop-blur-xl border border-white/10;
+  }
+
+  .glass-card {
+    @apply bg-white/40 backdrop-blur-xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.04)] rounded-2xl;
+  }
+
+  .glass-card-hover {
+    @apply hover:bg-white/60 hover:shadow-[0_8px_40px_rgba(0,0,0,0.08)] transition-all duration-300;
+  }
+
+  .glass-nav {
+    @apply bg-white/70 backdrop-blur-2xl border-b border-black/5;
+  }
+
+  .ios-button {
+    @apply bg-black text-white rounded-full font-medium transition-all duration-200 hover:bg-black/80 active:scale-95;
+  }
+
+  .ios-button-outline {
+    @apply bg-black/5 backdrop-blur-md border border-black/10 text-black rounded-full font-medium transition-all duration-200 hover:bg-black/10 active:scale-95;
+  }
+
+  .text-balance {
+    text-wrap: balance;
   }
 }
 
 @layer components {
+  .section-label {
+    @apply text-black/15 font-mono text-[10px] tracking-[0.2em] uppercase mb-3;
+  }
+
   .section-title {
-    @apply text-4xl md:text-5xl font-bold tracking-tighter text-black;
+    @apply text-3xl md:text-4xl lg:text-5xl font-semibold text-black tracking-[-0.03em] text-balance;
   }
+
   .section-subtitle {
-    @apply text-lg text-gray-400 max-w-2xl mx-auto;
-  }
-  .card-ios {
-    @apply bg-white border border-gray-100/80 rounded-3xl p-8
-           shadow-[0_1px_3px_0_rgb(0_0_0/0.03),0_1px_2px_-1px_rgb(0_0_0/0.02)]
-           transition-all duration-500 ease-out;
-  }
-  .card-ios:hover {
-    @apply border-gray-200/80
-           shadow-[0_8px_24px_0_rgb(0_0_0/0.06)]
-           -translate-y-0.5;
-  }
-  .btn-ios {
-    @apply inline-flex items-center gap-2 bg-black text-white font-semibold
-           px-8 py-3.5 rounded-2xl
-           transition-all duration-200 ease-out
-           active:scale-[0.97];
-  }
-  .btn-ios:hover {
-    @apply bg-gray-800
-           shadow-[0_4px_12px_0_rgb(0_0_0/0.15)];
-  }
-  .btn-ios-outline {
-    @apply inline-flex items-center gap-2 text-gray-500 font-medium
-           px-8 py-3.5 rounded-2xl border border-gray-200
-           transition-all duration-200 ease-out
-           active:scale-[0.97];
-  }
-  .btn-ios-outline:hover {
-    @apply text-black border-gray-400;
-  }
-  .btn-pill {
-    @apply bg-black text-white text-sm font-semibold
-           px-5 py-2.5 rounded-xl
-           transition-all duration-200 ease-out
-           active:scale-[0.97];
-  }
-  .btn-pill:hover {
-    @apply bg-gray-800
-           shadow-[0_2px_8px_0_rgb(0_0_0/0.12)];
-  }
-  .link-nav {
-    @apply text-sm text-gray-500 hover:text-black transition-colors duration-200
-           relative after:absolute after:bottom-[-2px] after:left-0 after:w-0 after:h-[2px]
-           after:bg-black after:transition-all after:duration-300 hover:after:w-full;
+    @apply mt-3 text-black/40 max-w-lg text-sm leading-relaxed tracking-[-0.01em] text-balance;
   }
 }

@@ -36,7 +36,7 @@ export async function downloadRuntime(manifest: RuntimeManifest): Promise<boolea
 
   const platform = resolvePlatform(manifest)
   if (!platform) {
-    process.stderr.write(`  No runtime available for ${process.platform} ${process.arch}\n`)
+    process.stdout.write(pc.red(`  No runtime available for ${process.platform} ${process.arch}\n`))
     return false
   }
 
@@ -60,7 +60,7 @@ export async function downloadRuntime(manifest: RuntimeManifest): Promise<boolea
 
     const actualHash = createHash('sha256').update(body).digest('hex')
     if (platform.sha256 !== 'PLACEHOLDER_CHECKSUM_REPLACE_ME' && actualHash !== platform.sha256) {
-      process.stderr.write(`  SHA256 mismatch:\n    expected: ${platform.sha256}\n    actual:   ${actualHash}\n`)
+      process.stdout.write(pc.red(`  SHA256 mismatch:\n    expected: ${platform.sha256}\n    actual:   ${actualHash}\n`))
       return false
     }
 
@@ -87,16 +87,15 @@ export async function downloadRuntime(manifest: RuntimeManifest): Promise<boolea
     writeFileSync(runtimeVersionPath(), `${manifest.version}\n`)
     return true
   } catch (err: any) {
-    process.stdout.write('\n')
     if (err.name === 'AbortError') {
-      process.stderr.write('  Download timed out (120s). Check your internet connection.\n')
+      process.stdout.write(pc.yellow('  Download timed out (120s). Check your internet connection.\n'))
     } else if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
-      process.stderr.write('  Cannot reach GitHub. No internet connection.\n')
-      process.stderr.write('  To install manually, download from:\n')
-      process.stderr.write(`    ${platform.zipUrl}\n`)
-      process.stderr.write(`  and extract to: ${dir}\n`)
+      process.stdout.write(pc.yellow('  Cannot reach GitHub. No internet connection.\n'))
+      process.stdout.write(`  ${pc.dim('To install manually, download from:')}\n`)
+      process.stdout.write(`    ${platform.zipUrl}\n`)
+      process.stdout.write(`  ${pc.dim('and extract to: ')}${dir}\n`)
     } else {
-      process.stderr.write(`  Download failed: ${err.message}\n`)
+      process.stdout.write(pc.yellow(`  Download failed: ${err.message}\n`))
     }
     return false
   }

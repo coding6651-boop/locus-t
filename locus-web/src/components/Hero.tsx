@@ -1,54 +1,133 @@
+import { motion } from "framer-motion";
+import { useParallax } from "./ParallaxContext";
+import { Link } from "react-router-dom";
+
+const headingWords = ["Your", "AI", "Agent", "for", "the", "Terminal"] as const;
+
 export function Hero() {
+  const { heroY, heroOpacity, heroScale, terminalY, terminalOpacity, orbY1, orbY2 } = useParallax();
+
   return (
-    <header className="relative min-h-screen flex items-center justify-center px-5 md:px-6 pt-20 overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(0,0,0,0.03)_0%,transparent_60%)]" />
+    <section className="pt-20 pb-16 sm:pt-24 sm:pb-20 px-4 sm:px-6 relative overflow-hidden min-h-screen flex items-center">
+      <motion.div
+        className="absolute top-20 right-0 w-48 sm:w-72 h-48 sm:h-72 bg-black/[0.02] rounded-full blur-3xl"
+        style={{ y: orbY1 }}
+        animate={{ scale: [1, 1.05, 1] }}
+        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="absolute bottom-0 left-10 w-32 sm:w-48 h-32 sm:h-48 bg-black/[0.02] rounded-full blur-3xl"
+        style={{ y: orbY2 }}
+        animate={{ y: [0, 15, 0] }}
+        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+      />
 
-      <div className="relative z-10 max-w-4xl mx-auto text-center">
-        <h1 className="text-[2.8rem] sm:text-[3.5rem] md:text-[6rem] lg:text-[7rem] font-bold tracking-tightest text-black mb-4 md:mb-6 leading-[0.95]">
-          Your AI Agent
-          <br />
-          <span className="text-gray-200">for the Terminal</span>
-        </h1>
-
-        <p className="text-sm sm:text-base md:text-lg text-gray-400 max-w-2xl mx-auto mb-10 md:mb-12 leading-relaxed px-2">
-          An agentic coding assistant that understands your codebase, runs commands,
-          edits files, and orchestrates complex workflows —{' '}
-          <span className="text-gray-500 font-medium">entirely on your machine.</span>
-        </p>
-
-        <div className="flex items-center justify-center gap-3 md:gap-4 flex-wrap">
-          <a
-            href="#terminal"
-            className="btn-ios text-sm md:text-base px-6 md:px-8 py-3 md:py-3.5"
+      <motion.div
+        className="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-8 lg:gap-12 relative w-full"
+        style={{ y: heroY, opacity: heroOpacity, scale: heroScale }}
+      >
+        <motion.div
+          className="flex-1 text-center lg:text-left"
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <motion.div
+            className="inline-flex items-center gap-2 glass-card px-3 py-1.5 mb-6"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <svg className="w-4 md:w-5 h-4 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            See it in action
-          </a>
-          <a
-            href="#features"
-            className="btn-ios-outline text-sm md:text-base px-6 md:px-8 py-3 md:py-3.5"
-          >
-            Explore features
-            <svg className="w-3.5 md:w-4 h-3.5 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
-          </a>
-        </div>
+            <span className="w-1.5 h-1.5 bg-black rounded-full" />
+            <motion.span
+              className="text-xs sm:text-sm text-black/60 font-medium"
+              animate={{ opacity: [0.6, 1, 0.6] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              Offline-First Coding Agent
+            </motion.span>
+          </motion.div>
 
-        <div className="mt-14 md:mt-20 max-w-xs sm:max-w-sm md:max-w-2xl mx-auto opacity-40">
-          <div className="bg-gray-50 border border-gray-100/80 rounded-xl md:rounded-2xl p-3 md:p-4 font-mono text-[10px] md:text-xs leading-5 md:leading-6 text-left overflow-x-auto whitespace-nowrap md:whitespace-normal">
-            <span className="text-gray-300">$ </span>
-            <span className="text-gray-500">locus ask </span>
-            <span className="text-gray-400">"explain this codebase"</span>
-            <br className="hidden md:block" />
-            <span className="text-gray-300">$ </span>
-            <span className="text-gray-300">_</span>
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-semibold leading-[1.15] sm:leading-[1.1] tracking-[-0.03em] text-black">
+            {headingWords.map((word, i) => {
+              const isLight = i >= 3;
+              return (
+                <motion.span
+                  key={i}
+                  className="inline-block mr-1.5"
+                  style={{ color: isLight ? "rgba(0,0,0,0.3)" : undefined }}
+                  initial={{ opacity: 0, y: 20, rotateX: -40 }}
+                  animate={{ opacity: 1, y: 0, rotateX: 0 }}
+                  transition={{
+                    duration: 0.5,
+                    delay: 0.2 + i * 0.08,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
+                >
+                  {word}
+                </motion.span>
+              );
+            })}
+          </h1>
+
+          <motion.p
+            className="mt-4 sm:mt-5 text-base sm:text-lg text-black/40 max-w-lg mx-auto lg:mx-0 leading-relaxed"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.7 }}
+          >
+            Locus is a terminal agent that keeps your workflow local. Fully offline support, private by default, and built for developers who care about speed, control, and data privacy.
+          </motion.p>
+          <motion.div
+            className="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+          >
+            <a href="#terminal" className="ios-button px-5 sm:px-6 py-2.5 sm:py-3 text-sm">
+              See it in action
+            </a>
+            <Link to="/login" className="ios-button-outline px-5 sm:px-6 py-2.5 sm:py-3 text-sm">
+              Get a License
+            </Link>
+          </motion.div>
+          <motion.p
+            className="mt-4 sm:mt-5 text-xs text-black/25 font-mono"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, delay: 0.5 }}
+          >
+            npm install -g @locus/cli
+          </motion.p>
+        </motion.div>
+
+        <motion.div
+          className="flex-1 flex justify-center lg:justify-end w-full"
+          initial={{ opacity: 0, y: 40, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          style={{ y: terminalY, opacity: terminalOpacity }}
+        >
+          <div className="glass-dark rounded-2xl overflow-hidden w-full max-w-sm sm:max-w-md lg:max-w-lg shadow-[0_24px_48px_rgba(0,0,0,0.12)]">
+            <div className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-white/5 border-b border-white/10">
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-white/20" />
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-white/20" />
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-white/20" />
+              <span className="ml-2 sm:ml-3 text-[10px] sm:text-xs text-white/30 font-mono">locus</span>
+            </div>
+            <div className="p-3 sm:p-5 font-mono text-[10px] sm:text-xs min-h-[160px] sm:min-h-[180px]">
+              <p className="text-white mb-1">
+                <span className="text-white/40">$</span> locus ask "explain this codebase"
+              </p>
+              <p className="text-white/40 mb-1">Analyzing repository structure...</p>
+              <p className="text-white/40 mb-1">Found 47 TypeScript files across 12 modules.</p>
+              <p className="text-white/40">
+                <span className="text-white/30">$</span> <span className="animate-pulse">_</span>
+              </p>
+            </div>
           </div>
-        </div>
-      </div>
-    </header>
-  )
+        </motion.div>
+      </motion.div>
+    </section>
+  );
 }
