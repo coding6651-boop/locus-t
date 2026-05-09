@@ -1,6 +1,7 @@
 import { format } from 'date-fns'
-import { Copy, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 import { useState } from 'react'
+import clsx from 'clsx'
 
 export interface License {
   _id: string
@@ -22,28 +23,54 @@ interface TokenTableProps {
   filterStatus?: 'all' | 'unused' | 'activated' | 'expired' | 'revoked'
 }
 
-function StatusBadge({ status }: { status: License['status'] }) {
-  const styles = {
-    unused: 'bg-gray-100 text-gray-700 border border-gray-200',
-    activated: 'bg-green-50 text-green-700 border border-green-200',
-    expired: 'bg-red-50 text-red-700 border border-red-200',
-    revoked: 'bg-orange-50 text-orange-700 border border-orange-200',
+function StatusDot({ status }: { status: License['status'] }) {
+  const colors: Record<License['status'], string> = {
+    unused: 'bg-gray-300',
+    activated: 'bg-black',
+    expired: 'bg-gray-200',
+    revoked: 'bg-gray-400',
   }
+  return <span className={`inline-block w-1.5 h-1.5 rounded-full ${colors[status]} mr-2.5`} />
+}
 
-  const icons = {
-    unused: Clock,
-    activated: CheckCircle,
-    expired: XCircle,
-    revoked: AlertCircle,
-  }
+const STATUS_LABELS: Record<License['status'], string> = {
+  unused: 'Unused',
+  activated: 'Active',
+  expired: 'Expired',
+  revoked: 'Revoked',
+}
 
-  const Icon = icons[status]
-
+function TokenSkeleton() {
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${styles[status]}`}>
-      <Icon className="w-3.5 h-3.5 mr-1.5" strokeWidth={2} />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
+    <div className="divide-y divide-gray-100/80">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="ios-row">
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-32 bg-gray-100 rounded-full animate-pulse" />
+            <div className="h-2.5 w-48 bg-gray-50 rounded-full animate-pulse" />
+          </div>
+          <div className="h-5 w-16 bg-gray-100 rounded-full animate-pulse" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmptyState({ filterStatus }: { filterStatus: string }) {
+  return (
+    <div className="py-20 text-center">
+      <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <Copy className="w-5 h-5 text-gray-400" strokeWidth={1.5} />
+      </div>
+      <p className="text-sm text-gray-400 font-medium">
+        {filterStatus !== 'all'
+          ? `No tokens with status "${filterStatus}"`
+          : 'No tokens yet'}
+      </p>
+      <p className="text-xs text-gray-300 mt-1">
+        {filterStatus === 'all' ? 'Create your first token to get started.' : 'Try a different filter.'}
+      </p>
+    </div>
   )
 }
 
@@ -56,81 +83,62 @@ export function TokenTable({ licenses, loading, filterStatus = 'all' }: TokenTab
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  if (loading || !licenses) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400"></div>
-      </div>
-    )
-  }
-
-  if (licenses.length === 0) {
-    const filterText = filterStatus !== 'all' ? ` with status "${filterStatus}"` : ''
-    return (
-      <div className="text-center py-16 text-gray-500">
-        <p className="text-sm">No tokens found{filterText}. Create your first token to get started.</p>
-      </div>
-    )
-  }
+  if (loading || !licenses) return <TokenSkeleton />
+  if (licenses.length === 0) return <EmptyState filterStatus={filterStatus} />
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="text-xs font-medium text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th className="px-4 py-3 text-left">Token</th>
-            <th className="px-4 py-3 text-left">Full Name</th>
-            <th className="px-4 py-3 text-left">User ID</th>
-            <th className="px-4 py-3 text-left">Status</th>
-            <th className="px-4 py-3 text-left">Uses</th>
-            <th className="px-4 py-3 text-left">Expires</th>
-            <th className="px-4 py-3 text-left">Device</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {licenses.map((license) => (
-            <tr
-              key={license._id}
-              className="hover:bg-gray-50 transition-colors"
-            >
-              <td className="px-4 py-3">
-                <div className="flex items-center space-x-2">
-                  <code className="font-mono text-xs text-black bg-gray-100 px-2 py-1 rounded">{license.token}</code>
-                  <button
-                    onClick={() => copyToClipboard(license.token, license._id)}
-                    className="text-gray-400 hover:text-gray-900 transition-colors"
-                    title="Copy token"
-                  >
-                    {copiedId === license._id ? (
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                    ) : (
-                      <Copy className="w-4 h-4" strokeWidth={1.5} />
-                    )}
-                  </button>
-                </div>
-              </td>
-              <td className="px-4 py-3 text-gray-900">{license.fullName || <span className="text-gray-400">-</span>}</td>
-              <td className="px-4 py-3 text-gray-600 font-mono text-xs">{license.userId}</td>
-              <td className="px-4 py-3">
-                <StatusBadge status={license.status} />
-              </td>
-              <td className="px-4 py-3 text-gray-600 text-xs">
-                {license.usedCount ?? 0} / {license.maxUses ?? 1}
-              </td>
-              <td className="px-4 py-3 text-gray-600 text-xs">
-                {format(license.expiresAt, 'MMM d, yyyy HH:mm')}
-              </td>
-              <td className="px-4 py-3 text-xs font-mono">
-                {license.deviceId ? (
-                  <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{license.deviceId.slice(0, 12)}...</span>
-                ) : (
-                  <span className="text-gray-400">-</span>
+    <div>
+      {licenses.map((license) => (
+        <div key={license._id} className="ios-row group">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2.5 mb-1">
+              <code className="font-mono text-sm font-medium text-gray-900 tracking-wide">{license.token}</code>
+              <button
+                onClick={() => copyToClipboard(license.token, license._id)}
+                className={clsx(
+                  'p-1 rounded-lg transition-all duration-200',
+                  copiedId === license._id
+                    ? 'bg-black/5 text-black'
+                    : 'opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-600 hover:bg-gray-100'
                 )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              >
+                {copiedId === license._id ? (
+                  <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />
+                )}
+              </button>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              {license.fullName && <span>{license.fullName}</span>}
+              {license.fullName && license.userId && <span className="text-gray-200">·</span>}
+              <span className="font-mono">{license.userId}</span>
+              <span className="text-gray-200">·</span>
+              <span>{format(license.expiresAt, 'MMM d, yyyy')}</span>
+              {license.deviceId && (
+                <>
+                  <span className="text-gray-200">·</span>
+                  <span className="font-mono text-gray-300">{license.deviceId.slice(0, 12)}…</span>
+                </>
+              )}
+              <span className="text-gray-200">·</span>
+              <span>{license.usedCount ?? 0}/{license.maxUses ?? 1} uses</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 ml-4">
+            <span className={clsx(
+              'badge',
+              license.status === 'unused' && 'badge-unused',
+              license.status === 'activated' && 'badge-activated',
+              license.status === 'expired' && 'badge-expired',
+              license.status === 'revoked' && 'badge-revoked',
+            )}>
+              <StatusDot status={license.status} />
+              {STATUS_LABELS[license.status]}
+            </span>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

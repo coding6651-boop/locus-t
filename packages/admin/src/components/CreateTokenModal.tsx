@@ -1,14 +1,10 @@
-import { useState } from 'react'
-import { X, Copy, CheckCircle, Key } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Copy, Check, X } from 'lucide-react'
 
 interface CreateTokenModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreate: (data: {
-    fullName: string
-    expiresAt: number
-    maxUses: number
-  }) => Promise<string | null>
+  onCreate: (data: { fullName: string; expiresAt: number; maxUses: number }) => Promise<string | null>
 }
 
 export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModalProps) {
@@ -19,26 +15,23 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
   const [generatedToken, setGeneratedToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [visible, setVisible] = useState(false)
 
-  if (!isOpen) return null
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => setVisible(true))
+    } else {
+      setVisible(false)
+    }
+  }, [isOpen])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!expiryDate || !expiryTime) return
-
     setLoading(true)
     const date = new Date(`${expiryDate}T${expiryTime}`)
-    const expiresAt = date.getTime()
-
-    const token = await onCreate({
-      fullName,
-      expiresAt,
-      maxUses,
-    })
-
-    if (token) {
-      setGeneratedToken(token)
-    }
+    const token = await onCreate({ fullName, expiresAt: date.getTime(), maxUses })
+    if (token) setGeneratedToken(token)
     setLoading(false)
   }
 
@@ -51,138 +44,111 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
   }
 
   const handleClose = () => {
-    setFullName('')
-    setExpiryDate('')
-    setExpiryTime('')
-    setMaxUses(1)
-    setGeneratedToken(null)
-    setCopied(false)
-    onClose()
+    setVisible(false)
+    setTimeout(() => {
+      setFullName('')
+      setExpiryDate('')
+      setExpiryTime('')
+      setMaxUses(1)
+      setGeneratedToken(null)
+      setCopied(false)
+      onClose()
+    }, 200)
   }
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose}></div>
+  if (!isOpen) return null
 
-        <div className="relative bg-white rounded-2xl shadow-xl max-w-sm w-full border border-gray-200">
-          <div className="flex items-center justify-between p-5 border-b border-gray-100">
-            <h3 className="text-base font-semibold text-black flex items-center">
-              <Key className="w-4 h-4 mr-2 text-black" strokeWidth={2} />
-              New License Token
+  return (
+    <>
+      <div
+        className={`fixed inset-0 z-50 bg-black/20 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}
+        onClick={handleClose}
+      />
+
+      <div
+        className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl shadow-[0_-4px_24px_0_rgb(0_0_0/0.08)] transition-transform duration-300 ease-out border-t border-gray-100/50 ${visible ? 'translate-y-0' : 'translate-y-full'}`}
+      >
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-9 h-1 bg-gray-200 rounded-full" />
+        </div>
+
+        <div className="px-6 pb-8 pt-2 max-w-sm mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-bold text-black tracking-tight">
+              {generatedToken ? 'Token Created' : 'New Token'}
             </h3>
-            <button
-              onClick={handleClose}
-              className="text-gray-400 hover:text-gray-900 transition-colors p-1 hover:bg-gray-100 rounded-md"
-            >
-              <X className="w-4 h-4" strokeWidth={2} />
+            <button onClick={handleClose} className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-all">
+              <X className="w-5 h-5" strokeWidth={1.5} />
             </button>
           </div>
 
           {generatedToken ? (
-            <div className="p-5">
-              <div className="text-center mb-5">
-                <div className="inline-flex items-center justify-center w-10 h-10 bg-black rounded-full mb-3">
-                  <CheckCircle className="w-5 h-5 text-white" strokeWidth={2} />
-                </div>
-                <h4 className="text-base font-semibold text-black mb-1">Token Created</h4>
-                <p className="text-gray-500 text-xs">Share this token with the user</p>
+            <div className="text-center">
+              <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[0_4px_12px_0_rgb(0_0_0/0.1)]">
+                <Check className="w-6 h-6 text-white" strokeWidth={2.5} />
               </div>
-
-              <div className="bg-gray-50 rounded-lg p-3 mb-4 border border-gray-200">
+              <p className="text-sm text-gray-500 mb-5">Share this token with the user</p>
+              <div className="bg-gray-50 rounded-2xl p-4 mb-5 border border-gray-100/50">
                 <div className="flex items-center justify-between gap-3">
-                  <code className="font-mono text-sm text-black tracking-tight truncate">{generatedToken}</code>
+                  <code className="font-mono text-sm text-black font-medium tracking-wide truncate">{generatedToken}</code>
                   <button
                     onClick={copyToken}
-                    className="text-gray-500 hover:text-black transition-colors p-1.5 hover:bg-gray-200 rounded-md flex-shrink-0"
+                    className="p-2 text-gray-400 hover:text-black hover:bg-gray-200 rounded-xl transition-all flex-shrink-0"
                   >
-                    {copied ? (
-                      <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
-                    ) : (
-                      <Copy className="w-4 h-4" strokeWidth={2} />
-                    )}
+                    {copied ? <Check className="w-4 h-4 text-black" strokeWidth={2.5} /> : <Copy className="w-4 h-4" strokeWidth={1.5} />}
                   </button>
                 </div>
               </div>
-
-              <button onClick={handleClose} className="btn-primary w-full text-sm py-2">
+              <button onClick={handleClose} className="btn-primary w-full text-sm py-3">
                 Done
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Full Name
-                </label>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-500 px-1">Full Name</label>
                 <input
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="input-field py-2"
-                  placeholder="e.g., John Doe"
+                  className="input-field"
+                  placeholder="e.g. John Doe"
                   required
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Expiry Date & Time
-                </label>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-500 px-1">Expiry Date & Time</label>
                 <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="date"
-                    value={expiryDate}
-                    onChange={(e) => setExpiryDate(e.target.value)}
-                    className="input-field py-2"
-                    required
-                  />
-                  <input
-                    type="time"
-                    value={expiryTime}
-                    onChange={(e) => setExpiryTime(e.target.value)}
-                    className="input-field py-2"
-                    required
-                  />
+                  <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="input-field" required />
+                  <input type="time" value={expiryTime} onChange={(e) => setExpiryTime(e.target.value)} className="input-field" required />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Max Uses
-                </label>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-500 px-1">Max Uses</label>
                 <input
                   type="number"
                   min={1}
                   max={10}
                   value={maxUses}
                   onChange={(e) => setMaxUses(parseInt(e.target.value) || 1)}
-                  className="input-field py-2"
+                  className="input-field"
                   required
                 />
               </div>
 
-              <p className="text-xs text-gray-400">
-                User ID will be auto-generated on the server
-              </p>
+              <p className="text-xs text-gray-300 text-center pt-1">User ID will be auto-generated</p>
 
-              <div className="flex space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  className="btn-secondary flex-1 text-sm py-2"
-                >
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={handleClose} className="btn-secondary flex-1 text-sm py-3">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="btn-primary flex-1 text-sm py-2"
-                  disabled={loading}
-                >
+                <button type="submit" className="btn-primary flex-1 text-sm py-3" disabled={loading}>
                   {loading ? (
-                    <span className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white mr-1.5"></div>
-                      Creating...
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white/30 border-t-white"></div>
+                      <span>Creating...</span>
                     </span>
                   ) : (
                     'Create Token'
@@ -193,6 +159,6 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
           )}
         </div>
       </div>
-    </div>
+    </>
   )
 }

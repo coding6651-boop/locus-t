@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
     "convex": "^1.16.0",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.400.0",

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { Lock, Mail } from 'lucide-react'
 
 export function LoginForm() {
   const [email, setEmail] = useState('')
@@ -11,7 +10,6 @@ export function LoginForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-
     const result = await login(email, password)
     if (!result.success) {
       setError(result.error || 'Invalid email or password')
@@ -19,75 +17,65 @@ export function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-white">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-10">
-          <h1 className="text-3xl font-bold text-black mb-2 tracking-tight">Locus</h1>
-          <p className="text-gray-500 text-sm">License Token Management</p>
+    <div className="min-h-screen flex items-center justify-center p-6 bg-white">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-12">
+          <div className="w-14 h-14 bg-black rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-[0_4px_12px_0_rgb(0_0_0/0.1)]">
+            <span className="text-white text-2xl font-bold tracking-tight">L</span>
+          </div>
+          <h1 className="text-2xl font-bold text-black tracking-tight mb-1">Welcome back</h1>
+          <p className="text-gray-400 text-sm">Sign in to manage license tokens</p>
         </div>
 
-        <div className="bg-gray-50 rounded-2xl p-8 border border-gray-200">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-400" strokeWidth={1.5} />
-                </div>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="input-field pl-10"
-                  placeholder="admin@locus.dev"
-                  required
-                />
-              </div>
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500 px-1">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="input-field"
+              placeholder="you@example.com"
+              autoComplete="email"
+              autoFocus
+              required
+            />
+          </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" strokeWidth={1.5} />
-                </div>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input-field pl-10"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-            </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500 px-1">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="input-field"
+              placeholder="Enter your password"
+              autoComplete="current-password"
+              required
+            />
+          </div>
 
-            {error && (
-              <div className="text-red-600 text-sm text-center bg-red-50 py-2 px-3 rounded-lg">{error}</div>
+          {error && (
+            <div className="bg-red-50 rounded-2xl px-4 py-3">
+              <p className="text-red-600 text-xs text-center font-medium">{error}</p>
+            </div>
+          )}
+
+          <button type="submit" className="btn-primary w-full mt-2" disabled={loading}>
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></div>
+                <span>Signing in...</span>
+              </span>
+            ) : (
+              'Sign In'
             )}
+          </button>
+        </form>
 
-            <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? (
-                <span className="flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Signing in...
-                </span>
-              ) : (
-                'Sign In'
-              )}
-            </button>
-          </form>
-        </div>
-
-        <div className="mt-6 text-center">
-          <p className="text-xs text-gray-400">Default: admin@locus.dev / admin123</p>
-        </div>
+        <p className="mt-8 text-center text-xs text-gray-300">
+          Default: admin@locus.dev / admin123
+        </p>
       </div>
     </div>
   )
