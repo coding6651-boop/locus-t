@@ -7,6 +7,8 @@ import { execSync } from 'child_process'
 import { runtimeDir, runtimeBinaryPath, runtimeVersionPath } from './paths.js'
 import type { RuntimeManifest, PlatformEntry } from './types.js'
 
+export type DownloadProgress = (phase: string, fraction: number) => void
+
 export async function installFromSource(sourceBinary: string): Promise<boolean> {
   const target = runtimeBinaryPath()
   const dir = runtimeDir()
@@ -30,45 +32,61 @@ export async function installFromSource(sourceBinary: string): Promise<boolean> 
   }
 }
 
-export async function downloadRuntime(manifest: RuntimeManifest): Promise<boolean> {
+export async function downloadRuntime(
+  manifest: RuntimeManifest,
+  onProgress?: DownloadProgress,
+): Promise<boolean> {
   const dir = runtimeDir()
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
   const platform = resolvePlatform(manifest)
   if (!platform) {
-    process.stdout.write(pc.red(`  No runtime available for ${process.platform} ${process.arch}\n`))
+    onProgress?.('error', 0)
     return false
   }
-
-  process.stdout.write(`  Downloading runtime (${platform.variant})...\n  ${platform.zipUrl}\n`)
 
   const zipPath = join(tmpdir(), `locus-runtime-${manifest.version}.zip`)
 
   try {
+    onProgress?.('connecting', 0)
+
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 120_000)
     const res = await fetch(platform.zipUrl, { signal: controller.signal })
     clearTimeout(timer)
 
     if (!res.ok) {
-      process.stdout.write(pc.yellow(`  Download failed: HTTP ${res.status}\n`))
+      onProgress?.('error', 0)
       return false
     }
 
-    const body = Buffer.from(await res.arrayBuffer())
-    process.stdout.write('  Downloaded ✓\n')
+    const total = Number(res.headers.get('content-length') ?? 0)
+    const reader = res.body!.getReader()
+    const hash = createHash('sha256')
+    const chunks: Buffer[] = []
+    let received = 0
 
-    const actualHash = createHash('sha256').update(body).digest('hex')
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(Buffer.from(value))
+      received += value.length
+      hash.update(value)
+      onProgress?.('download', total ? received / total : 0)
+    }
+
+    onProgress?.('verify', 1)
+    const body = Buffer.concat(chunks)
+    const actualHash = hash.digest('hex')
+
     if (platform.sha256 !== 'PLACEHOLDER_CHECKSUM_REPLACE_ME' && actualHash !== platform.sha256) {
-      process.stdout.write(pc.red(`  SHA256 mismatch:\n    expected: ${platform.sha256}\n    actual:   ${actualHash}\n`))
       return false
     }
 
+    onProgress?.('extract', 0)
     writeFileSync(zipPath, body)
-
-    process.stdout.write('  Extracting... ')
     extractZip(zipPath, dir)
-    process.stdout.write(pc.green('✓\n'))
 
     for (const file of platform.files) {
       const srcName = file.name
@@ -79,23 +97,19 @@ export async function downloadRuntime(manifest: RuntimeManifest): Promise<boolea
         if (srcName !== dstName) {
           renameSync(srcPath, dstPath)
         }
-      } else if (!file.optional) {
-        process.stdout.write(`  (${srcName} not found, may be optional)\n`)
       }
     }
 
     writeFileSync(runtimeVersionPath(), `${manifest.version}\n`)
+    onProgress?.('done', 1)
     return true
   } catch (err: any) {
     if (err.name === 'AbortError') {
-      process.stdout.write(pc.yellow('  Download timed out (120s). Check your internet connection.\n'))
+      onProgress?.('timeout', 0)
     } else if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
-      process.stdout.write(pc.yellow('  Cannot reach GitHub. No internet connection.\n'))
-      process.stdout.write(`  ${pc.dim('To install manually, download from:')}\n`)
-      process.stdout.write(`    ${platform.zipUrl}\n`)
-      process.stdout.write(`  ${pc.dim('and extract to: ')}${dir}\n`)
+      onProgress?.('offline', 0)
     } else {
-      process.stdout.write(pc.yellow(`  Download failed: ${err.message}\n`))
+      onProgress?.('error', 0)
     }
     return false
   }

@@ -4,6 +4,9 @@ import { Orchestrator } from '../core/orchestrator.js'
 import type { LLMProvider } from '../providers/types.js'
 import { RuntimeManager } from '../runtime/manager.js'
 import { runtimeBinaryPath, runtimeDir } from '../runtime/paths.js'
+import { findModel } from '../providers/llamacpp/binary.js'
+import { isRuntimeInstalled } from '../runtime/installer.js'
+import { progressBar } from '../ui/progress.js'
 import { verifyLicense } from '../auth/verification.js'
 import { activateLicense } from '../auth/activation.js'
 import { getConfig } from '../runtime/state.js'
@@ -82,6 +85,11 @@ export class CLI {
 
     process.stdout.write(BANNER + '\n')
 
+    if (this.ready) {
+      const mode = this.runtime?.isRunning ? 'local' : 'external'
+      process.stdout.write(`  ${pc.green('✓ Local AI ready')}  ${pc.dim(`(${mode})\n\n`)}`)
+    }
+
     if (!this.licensed) {
       process.stdout.write(pc.yellow('  License required. Available commands:\n'))
       process.stdout.write(HELP_LIMITED + '\n')
@@ -99,6 +107,7 @@ export class CLI {
       if (!t) { rl.prompt(); return }
 
       if (t.startsWith('/')) {
+        process.stdout.write('\n')
         await this.handleCommand(t, rl)
         rl.prompt()
         return
@@ -116,6 +125,7 @@ export class CLI {
         return
       }
 
+      process.stdout.write('\n')
       rl.pause()
       const ac = new AbortController()
       this.currentAbort = ac
@@ -266,7 +276,7 @@ export class CLI {
         break
 
       case '/setup':
-        await this.handleSetup()
+        await this.handleSetup(rl)
         break
 
       case '/exit':
@@ -283,28 +293,109 @@ export class CLI {
     }
   }
 
-  private async handleSetup(): Promise<void> {
+  private async handleSetup(rl?: ReturnType<typeof createInterface>): Promise<void> {
     const mgr = this.runtime ?? new RuntimeManager()
 
-    if (mgr.isInstalled) {
-      process.stdout.write(pc.green(`  ✓ Runtime already installed at ${runtimeBinaryPath()}\n`))
-      return
-    }
-
-    process.stdout.write(pc.dim('  Setting up llama.cpp runtime...\n'))
-
-    if (!mgr.hasManifest) {
-      process.stdout.write(pc.red(`  ✗ No runtime manifest found. Reinstall locus package.\n`))
-      return
-    }
-
-    const ok = await mgr.downloadAndInstall()
-    if (ok) {
-      process.stdout.write(pc.green(`  ✓ Runtime installed to ${runtimeDir()}\n`))
-      process.stdout.write(pc.dim('  Restart locus to use the local runtime.\n'))
+    // ── Check engine state ──
+    const engineInstalled = isRuntimeInstalled()
+    if (engineInstalled) {
+      process.stdout.write(`  Engine:    ${pc.green('✓ already installed')}  ${pc.dim(runtimeBinaryPath())}\n`)
     } else {
-      process.stdout.write(pc.yellow('  Could not install runtime automatically.\n'))
-      process.stdout.write(pc.dim(`  See: ${runtimeDir()}\n`))
+      process.stdout.write(`  Engine:    ${pc.yellow('not installed')}\n`)
+    }
+
+    // ── Check model state ──
+    const modelPath = findModel()
+    if (modelPath) {
+      const name = modelPath.split(/[/\\]/).pop() ?? modelPath
+      process.stdout.write(`  Model:     ${pc.green('✓')} ${name}\n`)
+    } else {
+      process.stdout.write(`  Model:     ${pc.yellow('not found')}  ${pc.dim('place a .gguf in ' + runtimeDir().replace('runtime', 'models'))}\n`)
+    }
+
+    // ── If engine needs install ──
+    if (!engineInstalled) {
+      if (!mgr.hasManifest) {
+        process.stdout.write(pc.red(`\n  ✗ No runtime manifest found. Reinstall locus package.\n\n`))
+        return
+      }
+
+      process.stdout.write('\n')
+
+      let lastPhase = ''
+      const ok = await mgr.downloadAndInstall((phase, fraction) => {
+        if (phase === 'connecting') {
+          const msg = `  Downloading AI engine... ${pc.dim('connecting...')}`
+          process.stdout.write(`\r${msg.padEnd(60)}`)
+          lastPhase = phase
+        } else if (phase === 'download') {
+          const msg = `  Downloading AI engine... ${progressBar(fraction)}`
+          process.stdout.write(`\r${msg.padEnd(60)}`)
+          lastPhase = phase
+        } else if (phase === 'verify') {
+          if (lastPhase !== 'verify') {
+            process.stdout.write(`\r  Downloading AI engine... ${progressBar(1)}${' '.repeat(10)}\n`)
+          }
+          process.stdout.write(`\r  Verifying download...   ${progressBar(fraction)}`)
+          lastPhase = phase
+        } else if (phase === 'extract') {
+          process.stdout.write(`\r  Verifying download...   ${progressBar(1)}${' '.repeat(10)}\n`)
+          process.stdout.write('  Unpacking runtime...')
+          lastPhase = phase
+        }
+      })
+
+      if (ok && lastPhase === 'extract') {
+        process.stdout.write(` ${pc.green('✓')}\n\n`)
+      } else if (!ok) {
+        process.stdout.write('\n')
+        process.stdout.write(pc.yellow('  Could not install runtime automatically.\n'))
+        process.stdout.write(pc.dim('  Options:\n'))
+        process.stdout.write(pc.dim(`    • Download: ${mgr.hasManifest ? 'retry with /setup' : 'no manifest'}\n`))
+        process.stdout.write(pc.dim(`    • Manual:   extract to ${runtimeDir()}\n`))
+        process.stdout.write('\n')
+        return
+      }
+    }
+
+    // ── Start engine ──
+    const modelPath2 = findModel()
+    if (!mgr.isRunning && mgr.isInstalled && modelPath2) {
+      process.stdout.write('  Starting local engine... ')
+      try {
+        const config = getConfig()
+        await mgr.start({
+          host: config.host,
+          port: config.port,
+          modelPath: modelPath2,
+          nCtx: config.nCtx,
+          nGpuLayers: config.nGpuLayers,
+        })
+        await mgr.waitForReady(120_000)
+
+        await new Promise((r) => setTimeout(r, 2000))
+        if (!mgr.isRunning) {
+          process.stdout.write(pc.red(`✗\n`))
+          process.stdout.write(pc.yellow('  Process exited unexpectedly (possibly blocked by antivirus).\n'))
+          process.stdout.write(pc.dim('  Add an exclusion for: ') + runtimeDir() + '\n')
+          process.stdout.write(pc.dim('  Or set LOCUS_CLIENT_ONLY=1 and run llama-server manually.\n\n'))
+          return
+        }
+
+        process.stdout.write(pc.green('✓ Local AI ready\n\n'))
+        this.ready = true
+        rl?.setPrompt(prompt(this.licensed, this.ready))
+      } catch {
+        process.stdout.write(pc.red('✗ failed\n'))
+        process.stdout.write(pc.dim('  Use LOCUS_BASE_URL to connect to an external server.\n\n'))
+      }
+    } else if (!modelPath2) {
+      process.stdout.write('\n')
+      process.stdout.write(pc.yellow('  Model not found. Place a .gguf file and run /setup again.\n'))
+      process.stdout.write(pc.dim(`  Expected location: ${runtimeDir().replace('runtime', 'models')}\n\n`))
+    } else if (mgr.isRunning) {
+      process.stdout.write(pc.green('  ✓ Local AI ready\n\n'))
+      rl?.setPrompt(prompt(this.licensed, this.ready))
     }
   }
 

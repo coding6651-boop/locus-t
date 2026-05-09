@@ -3,7 +3,7 @@ import { loadConfig } from '../config/loader.js'
 import { setConfig } from './state.js'
 import { findBinary, findModel } from '../providers/llamacpp/binary.js'
 import { RuntimeManager } from './manager.js'
-import { runtimeBinaryPath } from './paths.js'
+import { runtimeBinaryPath, runtimeDir } from './paths.js'
 import { CLI } from '../cli/index.js'
 import { startLifecycle } from './lifecycle.js'
 import { activateLicense } from '../auth/activation.js'
@@ -100,8 +100,16 @@ export async function bootstrap(): Promise<void> {
         process.stdout.write(pc.dim(`  Loading model... `))
         const ready = await runtime.waitForReady(120_000)
         if (ready.ok) {
-          process.stdout.write(pc.green('✓\n'))
-          providerBaseUrl = `http://${config.host}:${config.port}/v1`
+          await new Promise((r) => setTimeout(r, 2000))
+          if (!runtime.isRunning) {
+            process.stdout.write(pc.red(`✗\n`))
+            process.stdout.write(pc.yellow('  Process exited (possibly blocked by antivirus).\n'))
+            process.stdout.write(pc.dim('  Add exclusion for: ') + runtimeDir() + '\n')
+            process.stdout.write(pc.dim('  Run with LOCUS_CLIENT_ONLY=1 and external server.\n\n'))
+          } else {
+            process.stdout.write(pc.green('✓\n'))
+            providerBaseUrl = `http://${config.host}:${config.port}/v1`
+          }
         } else {
           process.stdout.write(pc.red('✗\n'))
         }

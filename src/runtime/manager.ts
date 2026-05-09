@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { runtimeBinaryPath } from './paths.js'
 import { installFromSource, downloadRuntime, isRuntimeInstalled } from './installer.js'
+import type { DownloadProgress } from './installer.js'
 import { RuntimeLauncher } from './launcher.js'
 import { waitForReady } from './health.js'
 import { RuntimeClient } from './client.js'
@@ -58,13 +59,10 @@ export class RuntimeManager {
     return null
   }
 
-  async downloadAndInstall(): Promise<boolean> {
+  async downloadAndInstall(onProgress?: DownloadProgress): Promise<boolean> {
     if (isRuntimeInstalled()) return true
-    if (!this.manifest) {
-      process.stderr.write('  No runtime manifest found.\n')
-      return false
-    }
-    return downloadRuntime(this.manifest)
+    if (!this.manifest) return false
+    return downloadRuntime(this.manifest, onProgress)
   }
 
   async start(config: {
