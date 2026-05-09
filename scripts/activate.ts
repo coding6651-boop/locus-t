@@ -1,3 +1,8 @@
+import dotenv from 'dotenv'
+import { existsSync } from 'node:fs'
+
+if (existsSync('.env.local')) dotenv.config({ path: '.env.local' })
+
 import pc from 'picocolors'
 import { loadConfig } from '../src/config/loader.js'
 import { setConfig } from '../src/runtime/state.js'

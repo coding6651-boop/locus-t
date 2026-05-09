@@ -65,7 +65,25 @@ function printInstructions(): void {
   process.stdout.write(`  ${pc.dim('Options:')}\n`)
   process.stdout.write(`  ${pc.dim('  1. Install llama-server and ensure it\'s in PATH')}\n`)
   process.stdout.write(`  ${pc.dim('  2. Place a .gguf model in ' + modelsDir())}\n`)
-  process.stdout.write(`  ${pc.dim('  3. Or set LOCUS_BASE_URL to an already-running server')}\n\n`)
+  process.stdout.write(`  ${pc.dim('  3. Set LOCUS_BASE_URL to an already-running server')}\n`)
+  process.stdout.write(`  ${pc.dim('  4. Set LOCUS_CLIENT_ONLY=1 to skip local server management')}\n\n`)
+}
+
+function printBlockedBinaryGuide(binaryPath: string): void {
+  const dir = binaryPath.includes('\\') ? binaryPath.split('\\').slice(0, -1).join('\\') : '.'
+  process.stdout.write(pc.yellow(`\n  The binary at ${binaryPath} was blocked by your system.\n`))
+  process.stdout.write(`  ${pc.dim('This is usually caused by:')}\n`)
+  process.stdout.write(`  ${pc.dim('  • Windows Device Guard / Windows Defender Application Control')}\n`)
+  process.stdout.write(`  ${pc.dim('  • Group Policy or organizational security policy')}\n`)
+  process.stdout.write(`  ${pc.dim('  • Antivirus flagging the binary as untrusted')}\n`)
+  process.stdout.write(`\n`)
+  process.stdout.write(`  ${pc.dim('Solutions:')}\n`)
+  process.stdout.write(`  ${pc.dim('  1. Run llama-server separately (outside locus):')}\n`)
+  process.stdout.write(`  ${pc.dim('     Set LOCUS_CLIENT_ONLY=1 and start the server manually')}\n`)
+  process.stdout.write(`  ${pc.dim('  2. Add an exclusion in Windows Security for:')}\n`)
+  process.stdout.write(`  ${pc.dim('     ' + dir)}\n`)
+  process.stdout.write(`  ${pc.dim('  3. Use a different backend (e.g., Ollama) and set LOCUS_BASE_URL')}\n`)
+  process.stdout.write(`  ${pc.dim('  4. Run in WSL where Device Guard does not apply')}\n\n`)
 }
 
 function printActivationInstructions(): void {
@@ -126,8 +144,9 @@ export async function bootstrap(): Promise<void> {
   const binaryPath = config.binaryPath || findBinary()
   const modelPath = config.modelPath || findModel()
   let providerBaseUrl = config.baseURL
+  const clientOnly = !!(process.env.LOCUS_CLIENT_ONLY)
 
-  if (binaryPath && modelPath) {
+  if (!clientOnly && binaryPath && modelPath) {
     process.stdout.write(pc.dim(`  Starting llama-server... `))
 
     try {
@@ -142,26 +161,42 @@ export async function bootstrap(): Promise<void> {
       } as ServerConfig)
     } catch (err: any) {
       process.stdout.write(pc.red(`✗ failed\n`))
-      process.stderr.write(pc.red(`  ${err.message}\n`))
-      process.exit(1)
+
+      if (server.isSecurityBlock()) {
+        printBlockedBinaryGuide(binaryPath)
+        process.stdout.write(pc.dim(`  Falling back to external server on ${config.baseURL}...\n\n`))
+      } else {
+        process.stderr.write(pc.red(`  ${err.message}\n\n`))
+        process.stdout.write(pc.dim(`  Falling back to external server on ${config.baseURL}...\n\n`))
+      }
+
+      // Fall through to external server check
     }
 
-    process.stdout.write(pc.green(`✓ (PID ${server.status?.pid || '?'})\n`))
+    if (server.isRunning) {
+      process.stdout.write(pc.green(`✓ (PID ${server.status?.pid || '?'})\n`))
 
-    process.stdout.write(pc.dim(`  Loading model${pc.dim('.').repeat(3)} `))
-    const health = await server.waitForReady(120_000, () => process.stdout.write(pc.dim('.')))
-    process.stdout.write('\n')
+      process.stdout.write(pc.dim(`  Loading model${pc.dim('.').repeat(3)} `))
+      const health = await server.waitForReady(120_000, () => process.stdout.write(pc.dim('.')))
+      process.stdout.write('\n')
 
-    if (!health.healthy) {
-      process.stdout.write(pc.red(`✗ failed\n`))
-      if (health.error) process.stderr.write(pc.red(`  ${health.error}\n`))
-      process.exit(1)
+      if (!health.healthy) {
+        process.stdout.write(pc.red(`✗ failed\n`))
+        if (health.error) process.stderr.write(pc.red(`  ${health.error}\n`))
+
+        if (server.isSecurityBlock()) {
+          printBlockedBinaryGuide(binaryPath)
+        }
+        process.stdout.write(pc.dim(`  Falling back to external server on ${config.baseURL}...\n\n`))
+      } else {
+        process.stdout.write(pc.green(`  ✓ Model loaded (${health.status.slice(0, 60)})\n\n`))
+        providerBaseUrl = `http://${config.host}:${config.port}/v1`
+        onShutdown(() => server.stop())
+      }
     }
+  }
 
-    process.stdout.write(pc.green(`  ✓ Model loaded (${health.status.slice(0, 60)})\n\n`))
-    providerBaseUrl = `http://${config.host}:${config.port}/v1`
-    onShutdown(() => server.stop())
-  } else if (process.env.LOCUS_BASE_URL || config.baseURL !== 'http://127.0.0.1:8080/v1') {
+  if (!server.isRunning) {
     process.stdout.write(pc.dim(`  Connecting to ${config.baseURL}... `))
     const health = await waitForReady(config.baseURL.replace(/\/v1$/, ''), 15_000)
     if (!health.healthy) {
@@ -170,10 +205,6 @@ export async function bootstrap(): Promise<void> {
       process.exit(1)
     }
     process.stdout.write(pc.green('✓ connected\n\n'))
-  } else {
-    process.stdout.write('\n')
-    printInstructions()
-    process.exit(1)
   }
 
   const provider = new LlamaCppProvider({ ...config, baseURL: providerBaseUrl })

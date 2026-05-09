@@ -114,7 +114,7 @@ export function TokenTable({ licenses, loading, filterStatus = 'all' }: TokenTab
               {license.fullName && license.userId && <span className="text-gray-200">·</span>}
               <span className="font-mono">{license.userId}</span>
               <span className="text-gray-200">·</span>
-              <span>{format(license.expiresAt, 'MMM d, yyyy')}</span>
+              <span>{format(license.expiresAt, 'MMM d, yyyy HH:mm')}</span>
               {license.deviceId && (
                 <>
                   <span className="text-gray-200">·</span>

@@ -164,8 +164,20 @@ export class LlamaCppServer {
     this.proc = null
   }
 
-  private getStartupError(): string {
+  getStartupError(): string {
     const lines = this.stderrBuf.split('\n').filter((l) => l.trim()).slice(-5)
     return lines.length > 0 ? lines.join('; ') : '(no error output)'
+  }
+
+  isSecurityBlock(): boolean {
+    const msg = this.stderrBuf.toLowerCase()
+    return msg.includes('blocked') ||
+      msg.includes('device guard') ||
+      msg.includes('applocker') ||
+      msg.includes('administrator') ||
+      msg.includes('permission denied') ||
+      msg.includes('access is denied') ||
+      msg.includes('eacces') ||
+      msg.includes('windows defender')
   }
 }
