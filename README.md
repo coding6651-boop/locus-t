@@ -4,96 +4,45 @@
 
 Locus connects to a local LLM backend (llama.cpp via its OpenAI-compatible API) and gives you an interactive terminal where you can chat, run commands, and manipulate files — all without internet access.
 
+Activation is managed via a Convex-hosted license authority using Ed25519-signed payloads.
+
 ---
 
 ## Architecture
 
 ```
 locus/
-├── bin/locus.ts              # npm/bin entry point — startup only, no logic
+├── bin/locus.ts              # npm/bin entry point
 ├── src/
 │   ├── cli/                  # Terminal UI (readline-based interactive CLI)
 │   ├── core/                 # Brain/orchestration layer
-│   │   ├── session.ts        # Session lifecycle & creation
-│   │   ├── prompt-builder.ts # System prompt assembly
-│   │   ├── context-engine.ts # Context window pruning & token management
-│   │   ├── task-runner.ts    # Tool execution dispatch
-│   │   ├── orchestrator.ts   # Agent loop — tool calling, message routing
-│   │   └── pipeline.ts       # Request/response pipeline with middleware hooks
-│   ├── ai/                   # AI inference — isolated from UI & tools
-│   │   ├── inference.ts      # LLM client abstraction
-│   │   ├── tokenizer.ts      # Token estimation & truncation
-│   │   ├── streaming.ts      # Stream buffering & flushing
-│   │   ├── templates.ts      # System prompt templates
-│   │   └── models.ts         # Model config & defaults
-│   ├── providers/            # Provider abstraction — swap backends without rewrites
-│   │   ├── types.ts          # LLMProvider interface, Message, ToolCall, etc.
-│   │   ├── provider.ts       # Abstract base provider
-│   │   └── llamacpp/         # llama.cpp implementation
-│   │       ├── server.ts     # Server lifecycle management (stub)
-│   │       ├── client.ts     # OpenAI-compatible streaming client
-│   │       └── health.ts     # Server health check
-│   ├── tools/                # Every terminal capability — isolated & extensible
-│   │   ├── types.ts          # Tool type definitions
-│   │   ├── registry.ts       # Central tool registration & lookup
-│   │   ├── bash/             # Shell command execution
-│   │   ├── files/            # File read/write with mkdir -p
-│   │   ├── edit/             # Exact-string file editing
-│   │   ├── grep/             # Content search via ripgrep
-│   │   ├── search/           # Glob pattern file search
-│   │   └── git/              # Git operations
+│   ├── ai/                   # AI inference — LLM client abstraction
+│   ├── providers/            # Provider abstraction (llama.cpp, etc.)
+│   ├── tools/                # Terminal capabilities (bash, files, edit, etc.)
 │   ├── memory/               # Conversation & cache management
-│   │   ├── session-memory.ts # Message store
-│   │   ├── summary.ts        # Persisted session summaries
-│   │   ├── compaction.ts     # History compaction (FIFO pruning)
-│   │   └── cache.ts          # Generic TTL cache
 │   ├── repo/                 # Repository intelligence layer
-│   │   ├── scanner.ts        # File system scanner
-│   │   ├── indexer.ts        # Content indexer
-│   │   ├── symbols.ts        # Symbol extraction & lookup
-│   │   ├── chunker.ts        # File chunking for large contexts
-│   │   ├── retrieval.ts      # Retrieval search
-│   │   ├── embeddings.ts     # Embedding generation (stub)
-│   │   └── summaries.ts      # Per-file summaries
-│   ├── runtime/              # Application lifecycle
-│   │   ├── bootstrap.ts      # Startup — connect to LLM, launch CLI
-│   │   ├── lifecycle.ts      # Init/shutdown hooks
-│   │   ├── state.ts          # Global runtime state
-│   │   └── shutdown.ts       # Graceful shutdown with cleanup
+│   ├── runtime/              # Application lifecycle & startup
 │   ├── auth/                 # Licensing system
-│   │   ├── license.ts        # License manager
-│   │   ├── activation.ts     # Activation flow
-│   │   ├── verification.ts   # License verification
-│   │   ├── device.ts         # Device fingerprinting
-│   │   └── storage.ts        # License persistence
-│   ├── config/               # Configuration
-│   │   ├── config.ts         # Re-exports AppConfig type
-│   │   ├── defaults.ts       # Default config values
-│   │   ├── schema.ts         # Config validation
-│   │   └── loader.ts         # File + env var loader
-│   ├── ui/                   # Terminal UI layer (separate from AI engine)
-│   │   ├── app.tsx           # UI entry point
-│   │   ├── components/       # Reusable UI components
-│   │   ├── screens/          # Full-screen views
-│   │   ├── dialogs/          # Modal dialogs
-│   │   └── theme/            # Colors & styling
+│   │   ├── types.ts          # LicensePayload, VerifyResult, ActivationResult
+│   │   ├── crypto.ts         # Ed25519 signature verification
+│   │   ├── device.ts         # Multi-platform device fingerprinting
+│   │   ├── storage.ts        # License persistence (~/.locus/license.lic)
+│   │   ├── verification.ts   # License verification flow
+│   │   └── activation.ts     # Activation flow (POST with retry & signing)
+│   ├── config/               # Configuration (defaults, loader, schema)
+│   ├── ui/                   # Terminal UI layer
 │   ├── modes/                # Offline/online mode switching
-│   │   ├── mode.ts           # Mode state management
-│   │   ├── offline.ts        # Offline mode init
-│   │   ├── online.ts         # Online mode init
-│   │   └── resolver.ts       # Provider resolution per mode
 │   └── utils/                # Shared utilities
+├── convex/                   # Convex backend (activation authority)
+│   ├── schema.ts             # Database schema (licenses, admins)
+│   ├── licenses.ts           # License mutation/query functions
+│   ├── admins.ts             # Admin authentication functions
+│   ├── http.ts               # HTTP routes (activate, admin CRUD)
+│   └── _generated/           # Auto-generated Convex types
+├── packages/
+│   └── admin/                # Web-based admin panel (Vite + React)
 ├── scripts/                  # Setup & packaging
-│   ├── install-models.ts     # GGUF model downloader (stub)
-│   ├── setup-llama.ts        # llama.cpp binary downloader (stub)
-│   ├── package-binary.ts     # Standalone binary packager (stub)
-│   └── cleanup.ts            # Cache/temp cleanup (stub)
-├── storage/                  # Local runtime data (gitignored content)
-│   ├── sessions/             # Conversation history
-│   ├── indexes/              # Repo indexes
-│   ├── cache/                # General cache
-│   ├── memory/               # Summaries & memory
-│   └── licenses/             # License keys
+├── storage/                  # Local runtime data (gitignored)
 ├── models/                   # Local GGUF files (gitignored)
 └── assets/                   # Static assets
 ```
@@ -102,7 +51,7 @@ locus/
 
 ## Requirements
 
-- **Node.js** 18+ (ESM)
+- **Node.js** 22+ (Ed25519 via WebCrypto)
 - **llama.cpp** running as a server (`llama-server`) with an OpenAI-compatible endpoint
   - Or any OpenAI-compatible API (works with Ollama, vLLM, etc.)
 
@@ -124,7 +73,7 @@ llama-server -m path/to/model.gguf --host 127.0.0.1 --port 8080
 npm start
 ```
 
-Or use the dev mode with hot-reload:
+Dev mode with hot-reload:
 
 ```bash
 npm run dev
@@ -132,16 +81,140 @@ npm run dev
 
 ---
 
-## Configuration
+## License & Activation
 
-### Environment variables
+Locus requires a valid license token to run. The activation system uses Ed25519 cryptographic signatures verified against a public key embedded in the binary.
+
+### Activation Flow
+
+1. **Generate a license token** via the Admin Panel (or the `/admin/create-token` HTTP API)
+2. **Activate the CLI**: `locus activate LIVE-ABCD-1234-EFGH`
+3. The CLI sends the token + device fingerprint to the Convex backend
+4. The backend validates the token, signs a license payload with the Ed25519 private key
+5. The CLI verifies the signature against the embedded public key and stores the license locally at `~/.locus/license.lic`
+
+### CLI License States
+
+| State | Behaviour |
+|---|---|
+| Licensed | Full functionality — all CLI commands and tools available |
+| Unlicensed | Limited mode — only `/activate`, `/help`, and `/exit` available |
+| Expired | Token expired — renew via new activation |
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `/activate <token>` | Activate a license token |
+| `/help` | Show available commands |
+| `/clear` | Clear the terminal screen |
+| `/reset` | Reset the conversation session |
+| `/exit` or `/quit` | Exit locus |
+
+In unlicensed mode, only `/activate`, `/help`, and `/exit` are available.
+
+### Env Vars
 
 | Variable | Default | Description |
 |---|---|---|
+| **LLM Backend** |||
 | `LOCUS_BASE_URL` | `http://127.0.0.1:8080/v1` | LLM API endpoint |
 | `LOCUS_MODEL` | `qwen2.5-coder-7b-instruct` | Model name |
 | `LOCUS_TEMPERATURE` | `0.1` | Sampling temperature |
 | `LOCUS_MAX_TOKENS` | `8192` | Max tokens per response |
+| **Activation** |||
+| `LOCUS_AUTH_URL` | `https://api.locus.ai/v1/activate` | Activation endpoint |
+| `LOCUS_CONVEX_URL` | Convex deployment URL | Convex HTTP endpoint |
+| `LOCUS_CONVEX_SHARED_SECRET` | — | Bearer token for activation requests |
+
+---
+
+## Convex Backend
+
+The activation authority lives in `convex/` and is deployed to Convex Cloud.
+
+### Tables
+
+**`licenses`** — License tokens and their state:
+
+| Field | Type | Description |
+|---|---|---|
+| `token` | `string` | Unique token (e.g. `LIVE-ABCD-1234`) |
+| `fullName` | `string?` | End-user display name |
+| `userId` | `string` | End-user identifier |
+| `status` | `"unused" \| "activated" \| "expired" \| "revoked"` | Current state |
+| `deviceId` | `string?` | Bound device on activation |
+| `maxUses` | `number?` | Max activation count |
+| `usedCount` | `number?` | Times activated |
+| `expiresAt` | `number` | Expiry timestamp (ms) |
+| `activatedAt` | `number?` | First activation timestamp |
+| `createdAt` | `number` | Creation timestamp |
+
+Indexes: `by_token`, `by_status`
+
+**`admins`** — Admin panel users:
+
+| Field | Type | Description |
+|---|---|---|
+| `email` | `string` | Login email |
+| `passwordHash` | `string` | SHA-256 password hash |
+| `name` | `string` | Display name |
+| `createdAt` | `number` | Creation timestamp |
+
+Index: `by_email`
+
+### HTTP Routes
+
+| Route | Method | Auth | Description |
+|---|---|---|---|
+| `/activate` | POST | `LOCUS_CONVEX_SHARED_SECRET` | Activate a license token, returns Ed25519-signed payload |
+| `/admin/create-token` | POST | `LOCUS_CONVEX_ADMIN_KEY` | Create a new license token |
+| `/admin/upsert-license` | POST | `LOCUS_CONVEX_ADMIN_KEY` | Insert or update a license record |
+| `/api/getAllLicenses` | POST | `LOCUS_CONVEX_ADMIN_KEY` | List all license tokens |
+
+### Deploy
+
+```bash
+npm run convex:deploy
+```
+
+Requires these environment variables on the Convex deployment:
+
+| Env Var | Description |
+|---|---|
+| `LOCUS_CONVEX_SHARED_SECRET` | Bearer secret for CLI activation requests |
+| `LOCUS_CONVEX_ADMIN_KEY` | Bearer secret for admin API requests |
+| `LOCUS_LICENSE_PRIVATE_KEY_PKCS8_BASE64` | Ed25519 private key for signing license payloads |
+
+See `convex/README.md` for full details.
+
+---
+
+## Admin Panel
+
+A standalone web application at `packages/admin/` for managing license tokens and admin accounts.
+
+### Quick Start
+
+```bash
+cd packages/admin
+npm install
+npx vite
+```
+
+Opens at `http://localhost:5173`. Default credentials: `admin@locus.dev` / `admin123`.
+
+### Seed the Default Admin
+
+```bash
+npx convex run --prod admins:initDefaultAdmin
+```
+
+See `packages/admin/README.md` for full setup.
+
+---
+
+## Configuration
 
 ### Config file
 
@@ -158,22 +231,7 @@ Create `locus.config.json` in the project root or `~/.locus/config.json`:
 
 ---
 
-## CLI Commands
-
-| Command | Description |
-|---|---|
-| `/help` | Show available commands |
-| `/clear` | Clear the terminal screen |
-| `/reset` | Reset the conversation session |
-| `/exit` or `/quit` | Exit locus |
-
-Everything else typed at the prompt is sent to the LLM as a request.
-
----
-
 ## Tools
-
-The AI agent has access to these tools:
 
 | Tool | Description |
 |---|---|
@@ -197,46 +255,11 @@ The AI agent has access to these tools:
 
 ---
 
-## Adding a New Provider
-
-Implement the `LLMProvider` interface from `src/providers/types.ts`:
-
-```typescript
-import { BaseProvider } from './provider.js'
-
-export class MyProvider extends BaseProvider {
-  async chat(messages, tools?) { /* ... */ }
-  async chatStream(messages, tools?, onToken?) { /* ... */ }
-}
-```
-
-Then swap it in `src/runtime/bootstrap.ts`.
-
----
-
-## Adding a New Tool
-
-1. Create `src/tools/<name>/index.ts` with a `Tool` export
-2. Add it to `src/tools/registry.ts`
-
-```typescript
-export const myTool: Tool = {
-  definition: { /* OpenAI tool schema */ },
-  handler: async (args) => { /* return string result */ },
-}
-```
-
----
-
-## Packaging as npm Dependency
+## Package
 
 ```bash
 npm pack   # creates locus-0.1.0.tgz
 ```
-
-The npm package ships only the terminal runtime and logic — GGUF models and llama.cpp binaries are downloaded on first launch via `locus setup`.
-
----
 
 ## License
 
