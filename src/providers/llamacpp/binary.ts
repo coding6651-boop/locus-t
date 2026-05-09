@@ -3,13 +3,19 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { execSync } from 'child_process'
 
+function appDataDir(): string {
+  const env = process.env.LOCALAPPDATA || process.env.APPDATA || join(homedir(), '.locus')
+  return join(env, 'Locus')
+}
+
 const BINARY_NAMES = process.platform === 'win32'
-  ? ['llama-server.exe', 'llama-server']
-  : ['llama-server', 'llama-server-main']
+  ? ['llama-server.exe', 'llama-server', 'locus-runtime.exe']
+  : ['llama-server', 'llama-server-main', 'locus-runtime']
 
 const SEARCH_PATHS = [
   process.cwd(),
   join(homedir(), '.locus', 'bin'),
+  join(appDataDir(), 'runtime'),
   join(homedir(), '.local', 'bin'),
   '/usr/local/bin',
   '/usr/bin',

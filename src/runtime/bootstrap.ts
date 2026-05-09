@@ -1,21 +1,19 @@
 import pc from 'picocolors'
 import { loadConfig } from '../config/loader.js'
 import { setConfig } from './state.js'
-import { LlamaCppProvider } from '../providers/llamacpp/client.js'
-import { LlamaCppServer } from '../providers/llamacpp/server.js'
-import { waitForReady } from '../providers/llamacpp/health.js'
 import { findBinary, findModel } from '../providers/llamacpp/binary.js'
+import { RuntimeManager } from './manager.js'
+import { runtimeBinaryPath } from './paths.js'
 import { CLI } from '../cli/index.js'
 import { getRAMDetail } from '../system/hardware.js'
 import { getCPUDetail } from '../system/cpu.js'
 import { getPlatformLabel } from '../system/platform.js'
 import { modelsDir } from '../system/paths.js'
 import { startLifecycle } from './lifecycle.js'
-import { onShutdown } from './shutdown.js'
 import { verifyLicense } from '../auth/verification.js'
 import { activateLicense } from '../auth/activation.js'
-import type { ServerConfig } from '../providers/llamacpp/types.js'
 import type { VerifyResult } from '../auth/types.js'
+import { existsSync } from 'fs'
 
 const VERSION = '0.1.0'
 
@@ -140,66 +138,62 @@ export async function bootstrap(): Promise<void> {
     process.exit(1)
   }
 
-  const server = new LlamaCppServer()
-  const binaryPath = config.binaryPath || findBinary()
+  const runtime = new RuntimeManager()
+  const binaryPath = findBinary()
   const modelPath = config.modelPath || findModel()
   let providerBaseUrl = config.baseURL
   const clientOnly = !!(process.env.LOCUS_CLIENT_ONLY)
 
-  if (!clientOnly && binaryPath && modelPath) {
-    process.stdout.write(pc.dim(`  Starting llama-server... `))
+  if (!clientOnly) {
+    const installed = runtime.isInstalled
+    if (!installed && binaryPath) {
+      await runtime.installFromSource(binaryPath)
+    }
 
-    try {
-      await server.start({
-        host: config.host,
-        port: config.port,
-        modelPath,
-        binaryPath,
-        nCtx: config.nCtx,
-        nGpuLayers: config.nGpuLayers,
-        verbose: config.verbose,
-      } as ServerConfig)
-    } catch (err: any) {
-      process.stdout.write(pc.red(`✗ failed\n`))
+    if (runtime.isInstalled && modelPath) {
+      process.stdout.write(pc.dim(`  Starting local runtime... `))
 
-      if (server.isSecurityBlock()) {
-        printBlockedBinaryGuide(binaryPath)
-        process.stdout.write(pc.dim(`  Falling back to external server on ${config.baseURL}...\n\n`))
-      } else {
-        process.stderr.write(pc.red(`  ${err.message}\n\n`))
+      try {
+        await runtime.start({
+          host: config.host,
+          port: config.port,
+          modelPath,
+          nCtx: config.nCtx,
+          nGpuLayers: config.nGpuLayers,
+        })
+
+        process.stdout.write(pc.green(`✓ (PID ${runtime.isRunning ? '...' : '?'})\n`))
+      } catch (err: any) {
+        process.stdout.write(pc.red(`✗ failed\n`))
+        if (err.message.includes('blocked') || err.message.toLowerCase().includes('permission')) {
+          printBlockedBinaryGuide(runtimeBinaryPath())
+        } else {
+          process.stderr.write(pc.red(`  ${err.message}\n`))
+        }
         process.stdout.write(pc.dim(`  Falling back to external server on ${config.baseURL}...\n\n`))
       }
 
-      // Fall through to external server check
-    }
+      if (runtime.isRunning) {
+        process.stdout.write(pc.dim(`  Loading model${pc.dim('.').repeat(3)} `))
+        const ready = await runtime.waitForReady(120_000, () => process.stdout.write(pc.dim('.')))
+        process.stdout.write('\n')
 
-    if (server.isRunning) {
-      process.stdout.write(pc.green(`✓ (PID ${server.status?.pid || '?'})\n`))
-
-      process.stdout.write(pc.dim(`  Loading model${pc.dim('.').repeat(3)} `))
-      const health = await server.waitForReady(120_000, () => process.stdout.write(pc.dim('.')))
-      process.stdout.write('\n')
-
-      if (!health.healthy) {
-        process.stdout.write(pc.red(`✗ failed\n`))
-        if (health.error) process.stderr.write(pc.red(`  ${health.error}\n`))
-
-        if (server.isSecurityBlock()) {
-          printBlockedBinaryGuide(binaryPath)
+        if (!ready.ok) {
+          process.stdout.write(pc.red(`✗ failed\n`))
+          if (ready.error) process.stderr.write(pc.red(`  ${ready.error}\n`))
+          process.stdout.write(pc.dim(`  Falling back to external server on ${config.baseURL}...\n\n`))
+        } else {
+          process.stdout.write(pc.green(`  ✓ Model loaded\n\n`))
+          providerBaseUrl = `http://${config.host}:${config.port}/v1`
         }
-        process.stdout.write(pc.dim(`  Falling back to external server on ${config.baseURL}...\n\n`))
-      } else {
-        process.stdout.write(pc.green(`  ✓ Model loaded (${health.status.slice(0, 60)})\n\n`))
-        providerBaseUrl = `http://${config.host}:${config.port}/v1`
-        onShutdown(() => server.stop())
       }
     }
   }
 
-  if (!server.isRunning) {
+  if (!runtime.isRunning) {
     process.stdout.write(pc.dim(`  Connecting to ${config.baseURL}... `))
-    const health = await waitForReady(config.baseURL.replace(/\/v1$/, ''), 15_000)
-    if (!health.healthy) {
+    const connected = await runtime.connectToExternal(config.baseURL)
+    if (!connected) {
       process.stdout.write(pc.red('✗ unreachable\n'))
       printInstructions()
       process.exit(1)
@@ -207,7 +201,7 @@ export async function bootstrap(): Promise<void> {
     process.stdout.write(pc.green('✓ connected\n\n'))
   }
 
-  const provider = new LlamaCppProvider({ ...config, baseURL: providerBaseUrl })
-  const cli = new CLI(provider)
+  const provider = runtime.createClient({ ...config, baseURL: providerBaseUrl })
+  const cli = new CLI(provider, runtime)
   await cli.start()
 }

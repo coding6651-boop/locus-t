@@ -1,0 +1,44 @@
+◇ injected env (6) from .env.local // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+[36m
+  ╔══════════════════════════════════╗
+  ║        locus v0.1.0               ║
+  ║   Local AI Coding Terminal       ║
+  ╚══════════════════════════════════╝
+[39m
+[1mRuntime Diagnostics[22m
+[2m──────────────────────────────────────────────────[22m
+  [2mPlatform:[22m    win32 (x64)
+  [2mRAM:[22m         16 GB total / 4 GB free
+  [2mCPU:[22m         Intel(R) Core(TM) i5-10310U CPU @ 1.70GHz (8 cores)
+  [2mllama.cpp:[22m   [32mfound[39m
+  [2mModel:[22m       [32mC:\Users\K  BRIAN\Desktop\colx\models\qwen2.5-coder-1.5b-instruct-q4_k_m.gguf[39m
+  [2mEndpoint:[22m    http://127.0.0.1:8080/v1
+  [2mLicense:[22m     [32m✓ active[39m
+[2m──────────────────────────────────────────────────[22m
+
+[2m  Runtime initialized
+[22m[2m  Starting local runtime... [22m[32m✓ (PID ...)
+[39m[2m  Loading model[2m.[22m[2m[2m.[22m[2m[2m.[22m[2m [22m[2m.[22m
+[32m  ✓ Model loaded
+
+[39m[36m
+  ╔══════════════════════════════╗
+  ║        locus v0.1            ║
+  ║   Local AI Coding Terminal   ║
+  ╚══════════════════════════════╝
+[39m
+[2mCommands:[22m
+  [32m/help[39m       Show help
+  [32m/clear[39m      Clear screen
+  [32m/sessions[39m   List saved sessions
+  [32m/session <id>[39m Resume a session by ID
+  [32m/new[39m        Start a new session
+  [32m/activate[39m   Activate license with a token
+  [32m/exit[39m       Exit
+
+[32mlocus[39m[2m > [22m
+Hello! How can I assist you today?
+[32mlocus[39m[2m > [22m[2m
+Goodbye!
+[22m
+=== EXIT: 0 ===

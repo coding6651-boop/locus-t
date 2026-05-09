@@ -2,6 +2,8 @@ import pc from 'picocolors'
 import { createInterface } from 'readline'
 import { Orchestrator } from '../core/orchestrator.js'
 import type { LLMProvider } from '../providers/types.js'
+import { RuntimeManager } from '../runtime/manager.js'
+import { runtimeBinaryPath, runtimeDir } from '../runtime/paths.js'
 import { verifyLicense } from '../auth/verification.js'
 import { activateLicense } from '../auth/activation.js'
 import { getConfig } from '../runtime/state.js'
@@ -19,6 +21,7 @@ const HELP = `${pc.dim('Commands:')}
   ${pc.green('/sessions')}   List saved sessions
   ${pc.green('/session <id>')} Resume a session by ID
   ${pc.green('/new')}        Start a new session
+  ${pc.green('/setup')}      Download and install llama.cpp runtime
   ${pc.green('/activate')}   Activate license with a token
   ${pc.green('/exit')}       Exit
 `
@@ -39,11 +42,13 @@ function prompt(licensed: boolean): string {
 
 export class CLI {
   private orchestrator: Orchestrator
+  private runtime: RuntimeManager | null = null
   private currentAbort: AbortController | null = null
   private licensed = false
 
-  constructor(provider: LLMProvider) {
+  constructor(provider: LLMProvider, runtime?: RuntimeManager) {
     this.orchestrator = new Orchestrator(provider)
+    this.runtime = runtime ?? null
   }
 
   async start(): Promise<void> {
@@ -180,7 +185,7 @@ export class CLI {
     const parts = cmd.split(/\s+/)
     const command = parts[0].toLowerCase()
 
-    if (!this.licensed && command !== '/help' && command !== '/activate' && command !== '/exit' && command !== '/quit') {
+    if (!this.licensed && command !== '/help' && command !== '/activate' && command !== '/exit' && command !== '/quit' && command !== '/setup') {
       process.stdout.write(pc.yellow('  Not available in unlicensed mode. Use /activate or /help.\n'))
       return
     }
@@ -233,6 +238,10 @@ export class CLI {
         await this.handleActivate(parts.slice(1).join(' '), rl)
         break
 
+      case '/setup':
+        await this.handleSetup()
+        break
+
       case '/exit':
       case '/quit':
         rl.close()
@@ -244,6 +253,31 @@ export class CLI {
           return this.handleCommand(`/session ${sessionId}`, rl)
         }
         process.stdout.write(pc.red(`Unknown command: ${command}\n`))
+    }
+  }
+
+  private async handleSetup(): Promise<void> {
+    const mgr = this.runtime ?? new RuntimeManager()
+
+    if (mgr.isInstalled) {
+      process.stdout.write(pc.green(`  ✓ Runtime already installed at ${runtimeBinaryPath()}\n`))
+      return
+    }
+
+    process.stdout.write(pc.dim('  Setting up llama.cpp runtime...\n'))
+
+    if (!mgr.hasManifest) {
+      process.stdout.write(pc.red(`  ✗ No runtime manifest found. Reinstall locus package.\n`))
+      return
+    }
+
+    const ok = await mgr.downloadAndInstall()
+    if (ok) {
+      process.stdout.write(pc.green(`  ✓ Runtime installed to ${runtimeDir()}\n`))
+      process.stdout.write(pc.dim('  Restart locus to use the local runtime.\n'))
+    } else {
+      process.stdout.write(pc.yellow('  Could not install runtime automatically.\n'))
+      process.stdout.write(pc.dim(`  See: ${runtimeDir()}\n`))
     }
   }
 
