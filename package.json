@@ -13,7 +13,9 @@
     "test": "tsx scripts/test-inference.ts",
     "test:mock": "tsx scripts/test-inference.ts --mock",
     "test:verify": "tsx scripts/test-inference.ts --mock",
-    "activate": "tsx scripts/activate.ts"
+    "activate": "tsx scripts/activate.ts",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy"
   },
   "dependencies": {
     "glob": "^11.0.0",
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "convex": "^1.27.3",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

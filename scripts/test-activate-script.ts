@@ -19,7 +19,7 @@ function assertEqual<T>(a: T, b: T, description: string) {
   assert(a === b, `${description} (expected: ${JSON.stringify(b)}, got: ${JSON.stringify(a)})`)
 }
 
-const PRIVATE_KEY_BASE64 = 'MC4CAQAwBQYDK2VwBCIEIEFoMeq9Llpv/0TvhO8uUlimCN3IERKkoPqsKStH1feB'
+const PRIVATE_KEY_BASE64 = 'MC4CAQAwBQYDK2VwBCIEIM3/Iye4VVabGIlHnkCCQILleR0TBcLcQggwNTNKctqu'
 const key = createPrivateKey({ key: Buffer.from(PRIVATE_KEY_BASE64, 'base64'), format: 'der', type: 'pkcs8' })
 
 // Start mock activation server

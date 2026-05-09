@@ -35,9 +35,13 @@ export async function activateLicense(
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeoutMs)
 
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const sharedSecret = process.env.LOCUS_CONVEX_SHARED_SECRET || cfg.convexSharedSecret
+      if (sharedSecret) headers['authorization'] = `Bearer ${sharedSecret}`
+
       const response = await fetch(activateUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ token, device_id: device.id }),
         signal: controller.signal,
       })

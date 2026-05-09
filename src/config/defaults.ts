@@ -18,6 +18,7 @@ export interface AppConfig {
   authTimeoutMs: number
   authMaxRetries: number
   disableLicenseGate: boolean
+  convexSharedSecret?: string
 }
 
 export const defaults: AppConfig = {

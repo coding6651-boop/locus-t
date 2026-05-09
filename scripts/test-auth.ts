@@ -14,7 +14,7 @@ import type { LicensePayload, VerifyResult } from '../src/auth/types.js'
 import { loadConfig } from '../src/config/loader.js'
 import { setConfig } from '../src/runtime/state.js'
 
-const PRIVATE_KEY_BASE64 = 'MC4CAQAwBQYDK2VwBCIEIEFoMeq9Llpv/0TvhO8uUlimCN3IERKkoPqsKStH1feB'
+const PRIVATE_KEY_BASE64 = 'MC4CAQAwBQYDK2VwBCIEIM3/Iye4VVabGIlHnkCCQILleR0TBcLcQggwNTNKctqu'
 
 let passed = 0
 let failed = 0

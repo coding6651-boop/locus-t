@@ -41,6 +41,7 @@ export function loadConfig(): AppConfig {
   config.authTimeoutMs = parseInt(process.env.LOCUS_AUTH_TIMEOUT_MS || String(config.authTimeoutMs), 10)
   config.authMaxRetries = parseInt(process.env.LOCUS_AUTH_MAX_RETRIES || String(config.authMaxRetries), 10)
   config.disableLicenseGate = process.env.LOCUS_DISABLE_LICENSE_GATE === 'true' || config.disableLicenseGate
+  config.convexSharedSecret = process.env.LOCUS_CONVEX_SHARED_SECRET || config.convexSharedSecret
 
   return config
 }

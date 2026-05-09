@@ -12,7 +12,7 @@ import { CLI } from '../src/cli/index.js'
 import type { LicensePayload } from '../src/auth/types.js'
 import type { LLMProvider } from '../src/providers/types.js'
 
-const PRIVATE_KEY_BASE64 = 'MC4CAQAwBQYDK2VwBCIEIEFoMeq9Llpv/0TvhO8uUlimCN3IERKkoPqsKStH1feB'
+const PRIVATE_KEY_BASE64 = 'MC4CAQAwBQYDK2VwBCIEIM3/Iye4VVabGIlHnkCCQILleR0TBcLcQggwNTNKctqu'
 
 let passed = 0
 let failed = 0

@@ -1,6 +1,6 @@
 import type { LicensePayload } from './types.js'
 
-export const EMBEDDED_PUBLIC_KEY_BASE64 = 'mVOj9chvY+77i6SGp09hJ6C/EuygmBb13pIVJ52Z7UA='
+export const EMBEDDED_PUBLIC_KEY_BASE64 = 'bZt8eWJqhvnVmLrVTUA5EJfCJ5EbaMje3+f3EmgwQXc='
 
 export function canonicalMessage(payload: Pick<LicensePayload, 'token' | 'user_id' | 'device_id' | 'expires_at'>): string {
   return `${payload.token}\n${payload.user_id}\n${payload.device_id}\n${payload.expires_at}`

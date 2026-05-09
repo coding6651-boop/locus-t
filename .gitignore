@@ -3,3 +3,7 @@ dist/
 .env
 storage/
 models/*.gguf
+
+# Environment files
+.env.local
+
