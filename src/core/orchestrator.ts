@@ -7,6 +7,7 @@ import type { LLMProvider } from '../providers/types.js'
 import { SessionStore } from '../memory/store.js'
 import { ResponseCache } from '../memory/response-cache.js'
 import { getConfig } from '../runtime/state.js'
+import { isFastPathCandidate, resolveFastPath } from './fast-path.js'
 import pc from 'picocolors'
 
 export class Orchestrator {
@@ -74,6 +75,19 @@ export class Orchestrator {
   }
 
   async run(input: string): Promise<string> {
+    if (isFastPathCandidate(input)) {
+      const allFiles = this.contextEngine.getAllFiles()
+      const fastResult = resolveFastPath(input, allFiles)
+      if (fastResult !== null) {
+        this.session.messages.push({ role: 'user', content: input })
+        this.session.messages.push({ role: 'assistant', content: fastResult })
+        this.session.turns++
+        this.session.updatedAt = new Date().toISOString()
+        this.store.save(this.session)
+        return fastResult
+      }
+    }
+
     const fingerprint = this.contextEngine.getProjectFingerprint()
 
     const projectCached = await this.tryCached(input, fingerprint)
@@ -123,6 +137,27 @@ export class Orchestrator {
     onToken?: (token: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
+    if (isFastPathCandidate(input)) {
+      const allFiles = this.contextEngine.getAllFiles()
+      const fastResult = resolveFastPath(input, allFiles)
+      if (fastResult !== null) {
+        if (onToken) {
+          const tokens = fastResult.split(/(?=\s)/)
+          for (const t of tokens) {
+            if (signal?.aborted) break
+            onToken(t)
+            await new Promise((r) => setTimeout(r, 8))
+          }
+        }
+        this.session.messages.push({ role: 'user', content: input })
+        this.session.messages.push({ role: 'assistant', content: fastResult })
+        this.session.turns++
+        this.session.updatedAt = new Date().toISOString()
+        this.store.save(this.session)
+        return fastResult
+      }
+    }
+
     const fingerprint = this.contextEngine.getProjectFingerprint()
 
     const projectCached = await this.tryCached(input, fingerprint, onToken, signal)

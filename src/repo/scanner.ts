@@ -31,6 +31,7 @@ const IGNORE_EXACT = new Set([
   '.cache', '.turbo', 'coverage', '.nyc_output',
   '__pycache__', '.pytest_cache', '.mypy_cache',
   '.env', '.env.local', '.venv', 'venv',
+  '.locus',
   '.DS_Store', 'Thumbs.db',
   'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
 ])

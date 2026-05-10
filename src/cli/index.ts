@@ -12,6 +12,8 @@ import { progressBar } from '../ui/progress.js'
 import { verifyLicense } from '../auth/verification.js'
 import { activateLicense } from '../auth/activation.js'
 import { getConfig } from '../runtime/state.js'
+import { IndexManager } from '../repo/index-manager.js'
+import type { IndexProgress } from '../repo/types.js'
 
 const BANNER = pc.cyan(`
   ╔══════════════════════════════╗
@@ -22,6 +24,7 @@ const BANNER = pc.cyan(`
 
 const HELP = `${pc.dim('Commands:')}
   ${pc.green('/help')}       Show help
+  ${pc.green('/index')}      Index codebase status and management
   ${pc.green('/clear')}      Clear screen
   ${pc.green('/sessions')}   List saved sessions
   ${pc.green('/session <id>')} Resume a session by ID
@@ -60,11 +63,13 @@ export class CLI {
   private currentAbort: AbortController | null = null
   private licensed = false
   private ready = false
+  private indexManager: IndexManager
 
   constructor(provider: LLMProvider, runtime?: RuntimeManager, ready = false) {
     this.orchestrator = new Orchestrator(provider)
     this.runtime = runtime ?? null
     this.ready = ready
+    this.indexManager = new IndexManager()
   }
 
   async start(): Promise<void> {
@@ -222,7 +227,7 @@ export class CLI {
       return
     }
 
-    if (!this.ready && this.licensed && command !== '/setup' && command !== '/help' && command !== '/exit' && command !== '/quit' && command !== '/activate') {
+    if (!this.ready && this.licensed && command !== '/setup' && command !== '/help' && command !== '/exit' && command !== '/quit' && command !== '/activate' && command !== '/index') {
       process.stdout.write(pc.yellow('  AI features need a running runtime. Use /setup to install one.\n'))
       return
     }
@@ -245,6 +250,10 @@ export class CLI {
 
       case '/new':
         this.orchestrator.newSession()
+        break
+
+      case '/index':
+        await this.handleIndex(rl)
         break
 
       case '/sessions': {
@@ -399,6 +408,91 @@ export class CLI {
     } else if (mgr.isRunning) {
       process.stdout.write(pc.green('  ✓ Local AI ready\n\n'))
       rl?.setPrompt(prompt(this.licensed, this.ready))
+    }
+  }
+
+  private async handleIndex(rl: ReturnType<typeof createInterface>): Promise<void> {
+    const rootPath = process.cwd()
+    const mgr = this.indexManager
+    const status = mgr.status(rootPath)
+
+    process.stdout.write(`  ${pc.bold('Locus Index')}\n`)
+    process.stdout.write(`  ${pc.dim('─'.repeat(40))}\n`)
+
+    const icon = status.kind === 'current' ? pc.green('●') : status.kind === 'stale' ? pc.yellow('◐') : pc.red('○')
+    const label = status.kind === 'current' ? 'Up-to-date' : status.kind === 'stale' ? 'Stale' : 'Not indexed'
+    process.stdout.write(`  Status: ${icon} ${label}\n`)
+
+    if (status.meta) {
+      process.stdout.write(`  Files:  ${pc.cyan(String(status.fileCount))} indexed\n`)
+      process.stdout.write(`  Chunks: ${pc.cyan(String(status.chunkCount))}\n`)
+      if (status.lastUpdated) {
+        const diff = Date.now() - new Date(status.lastUpdated).getTime()
+        const ago = diff < 60000 ? 'just now' : diff < 3600000 ? `${Math.floor(diff / 60000)}m ago` : `${Math.floor(diff / 3600000)}h ago`
+        process.stdout.write(`  Last:   ${pc.dim(ago)}\n`)
+      }
+      const size = status.sizeBytes > 1_000_000
+        ? `${(status.sizeBytes / 1_000_000).toFixed(1)} MB`
+        : `${(status.sizeBytes / 1000).toFixed(0)} KB`
+      process.stdout.write(`  Size:   ${pc.dim(size)}\n`)
+    } else {
+      const allFiles = mgr.scanFiles(rootPath)
+      process.stdout.write(`  Files:  ${pc.cyan(String(allFiles.length))} total\n`)
+    }
+
+    process.stdout.write(`  Watch:  ${mgr.isWatching ? pc.green('● Active') : pc.dim('○ Off')}\n`)
+
+    const needsIndex = status.kind !== 'current'
+    if (needsIndex) {
+      const excludedDirs = ['node_modules', '.git', 'dist', '.locus', '__pycache__', '.next', '.turbo', 'coverage']
+      process.stdout.write(`\n  ${pc.dim('Excluded:')} ${pc.dim(excludedDirs.join(', '))}\n`)
+
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(`\n  ${status.kind === 'stale' ? 'Re-index' : 'Index'} codebase? ${pc.dim('[Y/n]')} `, (a) => resolve(a.trim().toLowerCase()))
+      })
+
+      if (answer === 'n' || answer === 'no') {
+        process.stdout.write(`  ${pc.yellow('Skipped.\n')}\n`)
+        return
+      }
+
+      process.stdout.write('\n')
+      this.renderIndexProgress({ current: 1, total: 1, file: '' }, true)
+      const result = mgr.index(rootPath, (p) => this.renderIndexProgress(p, false))
+      this.renderIndexProgress({ current: result.fileCount, total: result.fileCount, file: '' }, true)
+
+      process.stdout.write(`\n  ${pc.green('✓ Indexing complete')}\n`)
+      process.stdout.write(`  ${result.fileCount} files | ${result.chunkCount} chunks\n`)
+
+      mgr.startWatcher(rootPath, () => {
+        mgr.rebuild(rootPath)
+      })
+      process.stdout.write(`  ${pc.green('● Watcher active')} ${pc.dim('(auto-rebuilds on file changes)\n')}\n`)
+    } else {
+      process.stdout.write(`\n  ${pc.dim('Type /index again to force re-index.\n')}\n`)
+    }
+  }
+
+  private renderIndexProgress(p: IndexProgress, done: boolean): void {
+    if (p.total <= 0) return
+    const pct = Math.round((done ? 1 : p.current / p.total) * 100)
+    const bar = progressBar(done ? 1 : p.current / p.total)
+
+    if (p.current === 1 && !done) {
+      process.stdout.write(`\n`)
+    }
+
+    if (!done && p.current > 1) {
+      process.stdout.write('\x1b[2A')
+    }
+    if (done) {
+      process.stdout.write(`\r  Indexing: ${bar} 100%\x1b[K\n`)
+      process.stdout.write(`  ${pc.dim('File:')} ${''.padEnd(50)}\x1b[K`)
+    } else {
+      process.stdout.write(`\r  Indexing: ${bar} ${pct}%\x1b[K\n`)
+      process.stdout.write(`  ${pc.dim('File:')} ${p.file}\x1b[K`)
+      process.stdout.write('\n')
+      process.stdout.write('\x1b[1A')
     }
   }
 

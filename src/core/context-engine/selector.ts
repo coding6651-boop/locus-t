@@ -1,3 +1,5 @@
+import type { RepoIndexer } from '../../repo/indexer.js'
+
 export interface FileScore {
   filePath: string
   score: number
@@ -61,6 +63,36 @@ export class FileSelector {
     for (const file of allFiles) {
       const result = this.scoreFile(file, keywords)
       if (result && result.score > 0) scored.push(result)
+    }
+
+    scored.sort((a, b) => b.score - a.score)
+    return scored.slice(0, topN)
+  }
+
+  selectByContent(query: string, index: RepoIndexer, topN = 6): FileScore[] {
+    const results = index.search(query, topN * 2)
+    if (results.length === 0) return []
+
+    const fileScores = new Map<string, { score: number; matches: Set<string> }>()
+    const queryKeywords = query.toLowerCase().split(/[^a-zA-Z0-9_+#.-]+/).filter(Boolean)
+
+    for (const r of results) {
+      const existing = fileScores.get(r.chunk.filePath) || { score: 0, matches: new Set<string>() }
+      existing.score += r.score
+      for (const kw of queryKeywords) {
+        const contentLower = r.chunk.content.toLowerCase()
+        if (contentLower.includes(kw)) existing.matches.add(kw)
+      }
+      fileScores.set(r.chunk.filePath, existing)
+    }
+
+    const scored: FileScore[] = []
+    for (const [filePath, info] of fileScores) {
+      scored.push({
+        filePath,
+        score: info.score,
+        matches: [...info.matches],
+      })
     }
 
     scored.sort((a, b) => b.score - a.score)
