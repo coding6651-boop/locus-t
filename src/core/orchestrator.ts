@@ -57,17 +57,43 @@ export class Orchestrator {
     this.contextEngine.setSystemMessage(systemMsg)
   }
 
+  private async tryCached(input: string, fingerprint: string, onToken?: (token: string) => void, signal?: AbortSignal): Promise<string | null> {
+    const cached = this.cache.get(input, fingerprint)
+    if (!cached) return null
+
+    if (onToken) {
+      const tokens = cached.split(/(?=\s)/)
+      for (const t of tokens) {
+        if (signal?.aborted) break
+        onToken(t)
+        await new Promise((r) => setTimeout(r, 8))
+      }
+    }
+
+    return cached
+  }
+
   async run(input: string): Promise<string> {
     const fingerprint = this.contextEngine.getProjectFingerprint()
-    const cached = this.cache.get(input, fingerprint)
-    if (cached) {
-      process.stderr.write(pc.dim('  (cached)\n'))
+
+    const projectCached = await this.tryCached(input, fingerprint)
+    if (projectCached !== null) {
       this.session.messages.push({ role: 'user', content: input })
-      this.session.messages.push({ role: 'assistant', content: cached })
+      this.session.messages.push({ role: 'assistant', content: projectCached })
       this.session.turns++
       this.session.updatedAt = new Date().toISOString()
       this.store.save(this.session)
-      return cached
+      return projectCached
+    }
+
+    const sharedCached = await this.tryCached(input, '')
+    if (sharedCached !== null) {
+      this.session.messages.push({ role: 'user', content: input })
+      this.session.messages.push({ role: 'assistant', content: sharedCached })
+      this.session.turns++
+      this.session.updatedAt = new Date().toISOString()
+      this.store.save(this.session)
+      return sharedCached
     }
 
     await this.buildContext(input)
@@ -82,7 +108,8 @@ export class Orchestrator {
       this.session.turns++
       this.session.updatedAt = new Date().toISOString()
       this.store.save(this.session)
-      this.cache.set(input, fingerprint, content)
+      const tier = this.promptBuilder.hasFileContext() ? fingerprint : ''
+      this.cache.set(input, tier, content)
       return content
     }
 
@@ -97,20 +124,25 @@ export class Orchestrator {
     signal?: AbortSignal,
   ): Promise<string> {
     const fingerprint = this.contextEngine.getProjectFingerprint()
-    const cached = this.cache.get(input, fingerprint)
-    if (cached) {
-      process.stderr.write(pc.dim('  (cached)\n'))
-      const tokens = cached.split(/(?=\s)/)
-      for (const t of tokens) {
-        if (signal?.aborted) break
-        onToken?.(t)
-      }
+
+    const projectCached = await this.tryCached(input, fingerprint, onToken, signal)
+    if (projectCached !== null) {
       this.session.messages.push({ role: 'user', content: input })
-      this.session.messages.push({ role: 'assistant', content: cached })
+      this.session.messages.push({ role: 'assistant', content: projectCached })
       this.session.turns++
       this.session.updatedAt = new Date().toISOString()
       this.store.save(this.session)
-      return cached
+      return projectCached
+    }
+
+    const sharedCached = await this.tryCached(input, '', onToken, signal)
+    if (sharedCached !== null) {
+      this.session.messages.push({ role: 'user', content: input })
+      this.session.messages.push({ role: 'assistant', content: sharedCached })
+      this.session.turns++
+      this.session.updatedAt = new Date().toISOString()
+      this.store.save(this.session)
+      return sharedCached
     }
 
     await this.buildContext(input)
@@ -138,7 +170,8 @@ export class Orchestrator {
       this.session.turns++
       this.session.updatedAt = new Date().toISOString()
       this.store.save(this.session)
-      this.cache.set(input, fingerprint, content)
+      const tier = this.promptBuilder.hasFileContext() ? fingerprint : ''
+      this.cache.set(input, tier, content)
       return content
     }
 

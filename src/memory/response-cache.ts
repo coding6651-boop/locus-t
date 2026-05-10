@@ -27,8 +27,6 @@ function makeKey(normalizedQuery: string, fingerprint: string): string {
 
 export class ResponseCache {
   get(query: string, fingerprint: string): string | null {
-    if (!fingerprint) return null
-
     const key = makeKey(normalizeQuery(query), fingerprint)
     const path = join(CACHE_DIR, `${key}.json`)
     if (!existsSync(path)) return null
@@ -53,7 +51,7 @@ export class ResponseCache {
   }
 
   set(query: string, fingerprint: string, response: string): void {
-    if (!fingerprint || !response) return
+    if (!response) return
 
     if (!existsSync(CACHE_DIR)) {
       mkdirSync(CACHE_DIR, { recursive: true })

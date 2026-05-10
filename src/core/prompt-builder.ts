@@ -13,6 +13,10 @@ export class PromptBuilder {
     this.fileContext = ctx || null
   }
 
+  hasFileContext(): boolean {
+    return this.fileContext !== null && this.fileContext.length > 0
+  }
+
   buildSystem(): Message {
     let content = buildSystemPrompt(this.systemExtra ?? undefined)
     if (this.fileContext) {
