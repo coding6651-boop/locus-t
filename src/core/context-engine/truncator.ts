@@ -58,8 +58,8 @@ export function truncateSmart(
   }
 
   const maxChars = maxTokens * 4
-  const averageLineLen = 40
-  const maxLines = Math.floor(maxChars / averageLineLen) + 100
+  const averageLineLen = 50
+  const maxLines = Math.floor(maxChars / averageLineLen) + 30
 
   const lines = content.split('\n')
   const breakPoint = findBoundaryLines(lines, Math.min(maxLines, lines.length))

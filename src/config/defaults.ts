@@ -31,7 +31,7 @@ export const defaults: AppConfig = {
   port: 8080,
   modelPath: '',
   binaryPath: '',
-  nCtx: 4096,
+  nCtx: 8192,
   nGpuLayers: 0,
   verbose: false,
   authUrl: 'https://api.locus.ai/v1/activate',

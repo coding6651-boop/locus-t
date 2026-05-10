@@ -1,22 +1,25 @@
+import { createHash } from 'crypto'
 import type { Message } from '../../providers/types.js'
 import { estimateTokens, truncateToTokens } from '../../ai/tokenizer.js'
-import { RepoScanner, buildFlatList } from '../../repo/scanner.js'
+import { RepoScanner, buildFlatList, type ScanResult, type FileNode } from '../../repo/scanner.js'
 import { FileSelector } from './selector.js'
 import { truncateSmart } from './truncator.js'
 import { getBudget, trimHistoryToBudget } from './budget.js'
 import { readFileSync } from 'fs'
 
-const MAX_CONTEXT_TOKENS = 28000
-
 export type { TokenBudget } from './budget.js'
 export { getBudget } from './budget.js'
 
 export class ContextEngine {
+  private nCtx: number
   private systemMessage: Message | null = null
   private selector: FileSelector
   private scanner: RepoScanner
+  private scanCache: { rootPath: string; result: ScanResult } | null = null
+  private static readonly MAX_CONTEXT_FILES = 6
 
-  constructor() {
+  constructor(nCtx = 8192) {
+    this.nCtx = nCtx
     this.selector = new FileSelector()
     this.scanner = new RepoScanner()
   }
@@ -25,14 +28,42 @@ export class ContextEngine {
     this.systemMessage = msg
   }
 
+  invalidateCache(): void {
+    this.scanCache = null
+  }
+
+  private ensureScanned(rootPath?: string): ScanResult {
+    const dir = rootPath ?? process.cwd()
+    if (!this.scanCache || this.scanCache.rootPath !== dir) {
+      const result = this.scanner.scan({ rootPath: dir, maxDepth: 8, maxSizeBytes: 1_048_576 })
+      this.scanCache = { rootPath: dir, result }
+    }
+    return this.scanCache.result
+  }
+
+  getProjectFingerprint(rootPath?: string): string {
+    const result = this.ensureScanned(rootPath)
+    const pairs: string[] = []
+    function walk(nodes: FileNode[], prefix: string) {
+      for (const n of nodes) {
+        const p = prefix ? prefix + '/' + n.name : n.name
+        if (n.type === 'dir') walk(n.children ?? [], p)
+        else pairs.push(`${p}:${n.size}`)
+      }
+    }
+    walk(result.root.children ?? [], '')
+    pairs.sort()
+    return createHash('md5').update(pairs.join('|')).digest('hex')
+  }
+
   async selectContext(query: string, rootPath?: string): Promise<string> {
     const dir = rootPath ?? process.cwd()
-    const budget = getBudget(MAX_CONTEXT_TOKENS)
+    const budget = getBudget(this.nCtx)
     const budgetChars = budget.context * 4
 
-    const result = this.scanner.scan({ rootPath: dir, maxDepth: 8, maxSizeBytes: 1_048_576 })
-    const allFiles = buildFlatList(result)
-    const relevant = this.selector.selectRelevant(query, allFiles, 12)
+    this.ensureScanned(dir)
+    const allFiles = buildFlatList(this.scanCache!.result)
+    const relevant = this.selector.selectRelevant(query, allFiles, ContextEngine.MAX_CONTEXT_FILES)
 
     if (relevant.length === 0) return ''
 
@@ -43,7 +74,7 @@ export class ContextEngine {
       try {
         const content = readFileSync(file.filePath, 'utf-8')
         const lang = detectLanguageFromPath(file.filePath)
-        const truncated = truncateSmart(content, file.filePath, 500)
+        const truncated = truncateSmart(content, file.filePath, 200)
         const header = `# ${file.filePath}`
         const block = `\n${header}\n\`\`\`${lang}\n${truncated.content}\n\`\`\`\n`
         const blockLen = block.length
@@ -68,7 +99,7 @@ export class ContextEngine {
   }
 
   prune(messages: Message[]): Message[] {
-    const budget = getBudget(MAX_CONTEXT_TOKENS)
+    const budget = getBudget(this.nCtx)
     const trimmed = trimHistoryToBudget(messages, budget, this.systemMessage)
     if (this.systemMessage) trimmed.unshift(this.systemMessage)
     return trimmed
@@ -76,7 +107,7 @@ export class ContextEngine {
 
   pruneWithContext(messages: Message[], fileContext: string): Message[] {
     const contextTokenEstimate = estimateTokens(fileContext)
-    const budget = getBudget(MAX_CONTEXT_TOKENS)
+    const budget = getBudget(this.nCtx)
     const adjustedHistory = budget.history - contextTokenEstimate
     const historyBudget = Math.max(adjustedHistory, 500)
 

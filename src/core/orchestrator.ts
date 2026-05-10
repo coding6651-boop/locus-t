@@ -5,6 +5,7 @@ import { ContextEngine } from './context-engine/index.js'
 import { InferenceEngine } from '../ai/inference.js'
 import type { LLMProvider } from '../providers/types.js'
 import { SessionStore } from '../memory/store.js'
+import { ResponseCache } from '../memory/response-cache.js'
 import { getConfig } from '../runtime/state.js'
 import pc from 'picocolors'
 
@@ -14,13 +15,15 @@ export class Orchestrator {
   private contextEngine: ContextEngine
   private inference: InferenceEngine
   private store: SessionStore
+  private cache: ResponseCache
   private maxIterations = 25
 
   constructor(provider: LLMProvider, resumeSessionId?: string) {
     this.store = new SessionStore(getConfig().storageDir)
     this.promptBuilder = new PromptBuilder()
-    this.contextEngine = new ContextEngine()
+    this.contextEngine = new ContextEngine(getConfig().nCtx ?? 8192)
     this.inference = new InferenceEngine(provider)
+    this.cache = new ResponseCache()
 
     if (resumeSessionId) {
       const saved = this.store.load(resumeSessionId)
@@ -55,6 +58,18 @@ export class Orchestrator {
   }
 
   async run(input: string): Promise<string> {
+    const fingerprint = this.contextEngine.getProjectFingerprint()
+    const cached = this.cache.get(input, fingerprint)
+    if (cached) {
+      process.stderr.write(pc.dim('  (cached)\n'))
+      this.session.messages.push({ role: 'user', content: input })
+      this.session.messages.push({ role: 'assistant', content: cached })
+      this.session.turns++
+      this.session.updatedAt = new Date().toISOString()
+      this.store.save(this.session)
+      return cached
+    }
+
     await this.buildContext(input)
     this.session.messages.push(this.promptBuilder.buildUser(input))
 
@@ -67,6 +82,7 @@ export class Orchestrator {
       this.session.turns++
       this.session.updatedAt = new Date().toISOString()
       this.store.save(this.session)
+      this.cache.set(input, fingerprint, content)
       return content
     }
 
@@ -80,18 +96,49 @@ export class Orchestrator {
     onToken?: (token: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
+    const fingerprint = this.contextEngine.getProjectFingerprint()
+    const cached = this.cache.get(input, fingerprint)
+    if (cached) {
+      process.stderr.write(pc.dim('  (cached)\n'))
+      const tokens = cached.split(/(?=\s)/)
+      for (const t of tokens) {
+        if (signal?.aborted) break
+        onToken?.(t)
+      }
+      this.session.messages.push({ role: 'user', content: input })
+      this.session.messages.push({ role: 'assistant', content: cached })
+      this.session.turns++
+      this.session.updatedAt = new Date().toISOString()
+      this.store.save(this.session)
+      return cached
+    }
+
     await this.buildContext(input)
     this.session.messages.push(this.promptBuilder.buildUser(input))
 
     for (let i = 0; i < this.maxIterations; i++) {
       const pruned = this.contextEngine.prune(this.session.messages)
-      const response = await this.inference.chatStream(pruned, undefined, onToken, { signal })
+
+      process.stderr.write(pc.dim('  thinking...'))
+      let firstToken = true
+      const wrappedOnToken = (token: string) => {
+        if (firstToken) {
+          firstToken = false
+          process.stderr.write('\x1b[2K\r')
+        }
+        onToken?.(token)
+      }
+
+      const response = await this.inference.chatStream(pruned, undefined, wrappedOnToken, { signal })
+
+      if (firstToken) process.stderr.write('\x1b[2K\r')
 
       const content = response.content ?? ''
       this.session.messages.push({ role: 'assistant', content })
       this.session.turns++
       this.session.updatedAt = new Date().toISOString()
       this.store.save(this.session)
+      this.cache.set(input, fingerprint, content)
       return content
     }
 
