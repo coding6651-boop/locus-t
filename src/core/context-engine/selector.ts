@@ -80,7 +80,7 @@ export class FileSelector {
       const existing = fileScores.get(r.chunk.filePath) || { score: 0, matches: new Set<string>() }
       existing.score += r.score
       for (const kw of queryKeywords) {
-        const contentLower = r.chunk.content.toLowerCase()
+        const contentLower = (r.chunk.content ?? '').toLowerCase()
         if (contentLower.includes(kw)) existing.matches.add(kw)
       }
       fileScores.set(r.chunk.filePath, existing)

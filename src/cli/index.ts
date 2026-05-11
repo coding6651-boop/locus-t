@@ -25,6 +25,7 @@ const BANNER = pc.cyan(`
 const HELP = `${pc.dim('Commands:')}
   ${pc.green('/help')}       Show help
   ${pc.green('/index')}      Index codebase status and management
+  ${pc.green('/index benchmark')} Run index benchmark timings
   ${pc.green('/clear')}      Clear screen
   ${pc.green('/sessions')}   List saved sessions
   ${pc.green('/session <id>')} Resume a session by ID
@@ -253,7 +254,7 @@ export class CLI {
         break
 
       case '/index':
-        await this.handleIndex(rl)
+        await this.handleIndex(rl, parts[1])
         break
 
       case '/sessions': {
@@ -411,9 +412,24 @@ export class CLI {
     }
   }
 
-  private async handleIndex(rl: ReturnType<typeof createInterface>): Promise<void> {
+  private async handleIndex(rl: ReturnType<typeof createInterface>, mode?: string): Promise<void> {
     const rootPath = process.cwd()
     const mgr = this.indexManager
+    if ((mode ?? '').toLowerCase() === 'benchmark') {
+      const bench = mgr.benchmark(rootPath)
+      process.stdout.write(`  ${pc.bold('Index Benchmark')}\n`)
+      process.stdout.write(`  ${pc.dim('scan/build/save/load/query timings')}\n`)
+      process.stdout.write(`  Scan:        ${pc.cyan(`${bench.scanMs} ms`)}\n`)
+      process.stdout.write(`  Build:       ${pc.cyan(`${bench.buildMs} ms`)}\n`)
+      process.stdout.write(`  Save:        ${pc.cyan(`${bench.saveMs} ms`)}\n`)
+      process.stdout.write(`  Load:        ${pc.cyan(`${bench.loadMs} ms`)}\n`)
+      process.stdout.write(`  First query: ${pc.cyan(`${bench.firstQueryMs} ms`)}\n`)
+      process.stdout.write(`  P95 query:   ${pc.cyan(`${bench.p95QueryMs} ms`)}\n`)
+      process.stdout.write(`  Manifest:    ${pc.cyan(`${bench.manifestBytes} bytes`)}\n`)
+      process.stdout.write(`  Shards:      ${pc.cyan(`${bench.shardsBytes} bytes`)}\n\n`)
+      return
+    }
+
     const status = mgr.status(rootPath)
 
     process.stdout.write(`  ${pc.bold('Locus Index')}\n`)

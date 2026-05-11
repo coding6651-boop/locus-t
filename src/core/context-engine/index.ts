@@ -8,6 +8,7 @@ import { FileSelector } from './selector.js'
 import { truncateSmart } from './truncator.js'
 import { getBudget, trimHistoryToBudget } from './budget.js'
 import { readFileSync, existsSync, mkdirSync } from 'fs'
+import type { ThinkingProgressEvent, ThinkingStage } from '../../repo/types.js'
 
 export type { TokenBudget } from './budget.js'
 export { getBudget } from './budget.js'
@@ -67,12 +68,14 @@ export class ContextEngine {
     return buildFlatList(result)
   }
 
-  ensureIndex(rootPath?: string): void {
+  ensureIndex(rootPath?: string, onProgress?: (evt: ThinkingProgressEvent) => void): void {
     const dir = rootPath ?? process.cwd()
+    this.indexer.setRootPath(dir)
     const fingerprint = this.getProjectFingerprint(dir)
     if (this.indexer.isBuilt && this.indexFingerprint === fingerprint) return
 
     const indexDir = join(dir, '.locus', 'index')
+    onProgress?.({ stage: 'Loading index', elapsedMs: 0 })
     if (this.indexer.load(indexDir, fingerprint)) {
       this.indexFingerprint = fingerprint
       return
@@ -86,21 +89,32 @@ export class ContextEngine {
     this.indexFingerprint = fingerprint
   }
 
-  async selectContext(query: string, rootPath?: string): Promise<string> {
+  async selectContext(
+    query: string,
+    rootPath?: string,
+    onProgress?: (evt: ThinkingProgressEvent) => void,
+  ): Promise<string> {
     const dir = rootPath ?? process.cwd()
+    const started = Date.now()
+    const emit = (stage: ThinkingStage, detail?: string) => onProgress?.({ stage, elapsedMs: Date.now() - started, detail })
     const budget = getBudget(this.nCtx)
     const budgetChars = budget.context * 4
 
+    emit('Scanning project')
     this.ensureScanned(dir)
     const allFiles = buildFlatList(this.scanCache!.result)
 
-    this.ensureIndex(dir)
+    emit('Loading index')
+    this.ensureIndex(dir, onProgress)
+    emit('Selecting symbols')
     const chunks = this.indexer.search(query, ContextEngine.MAX_CONTEXT_FILES)
+    emit('Scoring matches', `${chunks.length} chunks`)
     const fromIndex = chunks.length > 0
 
     if (!fromIndex) {
       const pathRelevant = this.selector.selectRelevant(query, allFiles, ContextEngine.MAX_CONTEXT_FILES)
       if (pathRelevant.length === 0) return ''
+      emit('Building context')
       return this.assembleFromPaths(pathRelevant, budgetChars)
     }
 
@@ -116,11 +130,13 @@ export class ContextEngine {
       totalChars += treeBlock.length
     }
 
+    emit('Building context')
     for (const sc of chunks) {
-      const c = sc.chunk
+      const c = this.hydrateChunk(sc.chunk, dir)
       const lang = detectLanguageFromPath(c.filePath)
       const header = c.label ? `# ${c.filePath}:${c.startLine} (${c.label})` : `# ${c.filePath}:${c.startLine}`
-      const block = `\n${header}\n\`\`\`${lang}\n${c.content}\n\`\`\`\n`
+      const content = c.content ?? ''
+      const block = `\n${header}\n\`\`\`${lang}\n${content}\n\`\`\`\n`
 
       if (totalChars + block.length > budgetChars) {
         if (totalChars === 0) {
@@ -136,6 +152,20 @@ export class ContextEngine {
     }
 
     return parts.join('\n').trim()
+  }
+
+  private hydrateChunk(chunk: import('../../repo/types.js').IndexChunk, rootPath: string): import('../../repo/types.js').IndexChunk {
+    if (chunk.content && chunk.content.length > 0) return chunk
+    const fullPath = join(rootPath, chunk.filePath)
+    try {
+      const text = readFileSync(fullPath, 'utf-8')
+      const lines = text.split('\n')
+      const start = Math.max(0, chunk.startLine - 1)
+      const end = Math.min(lines.length, chunk.endLine)
+      return { ...chunk, content: lines.slice(start, end).join('\n') }
+    } catch {
+      return { ...chunk, content: '' }
+    }
   }
 
   private assembleFromPaths(files: import('./selector.js').FileScore[], budgetChars: number): string {

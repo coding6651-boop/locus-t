@@ -4,7 +4,7 @@ import { createHash } from 'crypto'
 import { RepoIndexer } from './indexer.js'
 import { RepoScanner, buildFlatList, type FileNode } from './scanner.js'
 import { FileWatcher } from './watcher.js'
-import type { IndexProgress, IndexMeta } from './types.js'
+import type { IndexProgress, IndexMeta, IndexBuildMetrics } from './types.js'
 
 const INDEX_DIR = '.locus'
 const INDEX_SUBDIR = 'index'
@@ -115,14 +115,17 @@ export class IndexManager {
     this.currentFingerprint = fingerprint
 
     const allFiles = this.scanFiles(rootPath)
+    this.indexer.setRootPath(rootPath)
     this.indexer.build(allFiles, rootPath, fingerprint, onProgress)
 
     const dir = this.indexDir(rootPath)
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     this.indexer.save(dir)
 
-    const indexFilePath = join(dir, `index-${fingerprint}.json`)
-    const sizeBytes = existsSync(indexFilePath) ? statSync(indexFilePath).size : 0
+    const manifestPath = join(dir, 'index-manifest.json')
+    const sizeBytes = existsSync(manifestPath)
+      ? statSync(manifestPath).size
+      : (existsSync(join(dir, `index-${fingerprint}.json`)) ? statSync(join(dir, `index-${fingerprint}.json`)).size : 0)
 
     const meta: IndexMeta = {
       fingerprint,
@@ -152,5 +155,70 @@ export class IndexManager {
 
   rebuild(rootPath: string, onProgress?: (p: IndexProgress) => void): { ok: boolean; fileCount: number; chunkCount: number } {
     return this.index(rootPath, onProgress)
+  }
+
+  benchmark(rootPath: string): IndexBuildMetrics {
+    const scannerStart = Date.now()
+    const fingerprint = this.computeFingerprint(rootPath)
+    const files = this.scanFiles(rootPath)
+    const scanMs = Date.now() - scannerStart
+
+    this.indexer.setRootPath(rootPath)
+    const buildStart = Date.now()
+    this.indexer.build(files, rootPath, fingerprint)
+    const buildMs = Date.now() - buildStart
+
+    const dir = this.indexDir(rootPath)
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    const saveStart = Date.now()
+    this.indexer.save(dir)
+    const saveMs = Date.now() - saveStart
+
+    const loader = new RepoIndexer()
+    loader.setRootPath(rootPath)
+    const loadStart = Date.now()
+    loader.load(dir, fingerprint)
+    const loadMs = Date.now() - loadStart
+
+    const q1 = Date.now()
+    loader.search('find functions types exports class', 8)
+    const firstQueryMs = Date.now() - q1
+
+    const samples = [
+      'where auth login is implemented',
+      'token status flow and activation',
+      'index manager and context engine',
+      'runtime startup and health check',
+      'provider stream implementation',
+    ]
+    const timings: number[] = []
+    for (const s of samples) {
+      const t = Date.now()
+      loader.search(s, 8)
+      timings.push(Date.now() - t)
+    }
+    timings.sort((a, b) => a - b)
+    const p95QueryMs = timings[Math.min(timings.length - 1, Math.floor(timings.length * 0.95))]
+
+    const manifestPath = join(dir, 'index-manifest.json')
+    const manifestBytes = existsSync(manifestPath) ? statSync(manifestPath).size : 0
+    const terms = join(dir, `terms-${fingerprint}.json.gz`)
+    const chunks = join(dir, `chunks-${fingerprint}.json.gz`)
+    const symbols = join(dir, `symbols-${fingerprint}.json.gz`)
+    const shardsBytes =
+      (existsSync(terms) ? statSync(terms).size : 0) +
+      (existsSync(chunks) ? statSync(chunks).size : 0) +
+      (existsSync(symbols) ? statSync(symbols).size : 0)
+
+    return {
+      scanMs,
+      buildMs,
+      saveMs,
+      loadMs,
+      firstQueryMs,
+      p95QueryMs,
+      manifestBytes,
+      shardsBytes,
+    }
   }
 }

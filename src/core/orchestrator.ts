@@ -9,6 +9,7 @@ import { ResponseCache } from '../memory/response-cache.js'
 import { getConfig } from '../runtime/state.js'
 import { isFastPathCandidate, resolveFastPath } from './fast-path.js'
 import pc from 'picocolors'
+import { ThinkingStatus } from '../ui/thinking-status.js'
 
 export class Orchestrator {
   private session: Session
@@ -51,8 +52,8 @@ export class Orchestrator {
     }
   }
 
-  private async buildContext(input: string): Promise<void> {
-    const ctx = await this.contextEngine.selectContext(input)
+  private async buildContext(input: string, onStage?: (stage: import('../repo/types.js').ThinkingStage) => void): Promise<void> {
+    const ctx = await this.contextEngine.selectContext(input, undefined, (evt) => onStage?.(evt.stage))
     this.promptBuilder.setFileContext(ctx)
     const systemMsg = this.promptBuilder.buildSystem()
     this.contextEngine.setSystemMessage(systemMsg)
@@ -180,25 +181,26 @@ export class Orchestrator {
       return sharedCached
     }
 
-    await this.buildContext(input)
+    const status = new ThinkingStatus()
+    status.start('Scanning project')
+    await this.buildContext(input, (stage) => status.update(stage))
     this.session.messages.push(this.promptBuilder.buildUser(input))
 
     for (let i = 0; i < this.maxIterations; i++) {
       const pruned = this.contextEngine.prune(this.session.messages)
-
-      process.stderr.write(pc.dim('  thinking...'))
+      status.update('Generating response')
       let firstToken = true
       const wrappedOnToken = (token: string) => {
         if (firstToken) {
           firstToken = false
-          process.stderr.write('\x1b[2K\r')
+          status.stop()
         }
         onToken?.(token)
       }
 
       const response = await this.inference.chatStream(pruned, undefined, wrappedOnToken, { signal })
 
-      if (firstToken) process.stderr.write('\x1b[2K\r')
+      if (firstToken) status.stop()
 
       const content = response.content ?? ''
       this.session.messages.push({ role: 'assistant', content })
@@ -209,6 +211,7 @@ export class Orchestrator {
       this.cache.set(input, tier, content)
       return content
     }
+    status.stop()
 
     this.session.updatedAt = new Date().toISOString()
     this.store.save(this.session)
