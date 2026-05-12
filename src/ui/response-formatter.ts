@@ -126,7 +126,7 @@ export class ResponseFormatter {
     const codeEnd = line.match(/^```\s*$/)
 
     if (this.inCodeBlock) {
-      if (codeEnd && this.codeLines.length > 0) {
+      if (codeEnd) {
         this.emitCodeBlock()
         return
       }
