@@ -26,8 +26,7 @@ export class PromptBuilder {
   }
 
   hasFileContext(): boolean {
-    return (this.fileContext !== null && this.fileContext.length > 0) ||
-           (this.fileSuggestions !== null && this.fileSuggestions.length > 0)
+    return (this.fileContext !== null && this.fileContext.length > 0)
   }
 
   buildSystem(): Message {

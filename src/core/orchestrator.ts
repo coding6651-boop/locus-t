@@ -82,7 +82,7 @@ export class Orchestrator {
   private executeRead(filePath: string): string {
     const root = process.cwd()
     const resolved = resolve(root, filePath.trim())
-    if (!resolved.startsWith(root)) return `Error: Access denied — path outside project root`
+    if (!resolved.startsWith(root + '/') && resolved !== root) return `Error: Access denied — path outside project root`
     try {
       const stat = statSync(resolved)
       if (!stat.isFile()) return `Error: '${filePath}' is not a file`

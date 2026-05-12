@@ -14,7 +14,7 @@ function getProjectRoot(): string {
 function assertSandbox(filePath: string): void {
   const root = getProjectRoot()
   const resolved = resolve(root, filePath)
-  if (!resolved.startsWith(root)) {
+  if (!resolved.startsWith(root + '/') && resolved !== root) {
     throw new Error('Access denied: path is outside project root')
   }
 }
