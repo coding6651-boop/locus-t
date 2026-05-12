@@ -8,21 +8,19 @@ import { CLI } from '../cli/index.js'
 import { startLifecycle } from './lifecycle.js'
 import { activateLicense } from '../auth/activation.js'
 import { existsSync } from 'fs'
+import { ICON, statusBadge } from '../ui/theme.js'
 
 function printBlockedBinaryGuide(binaryPath: string): void {
   const dir = binaryPath.includes('\\') ? binaryPath.split('\\').slice(0, -1).join('\\') : '.'
-  process.stdout.write(pc.yellow(`\n  The binary at ${binaryPath} was blocked by your system.\n`))
-  process.stdout.write(`  ${pc.dim('This is usually caused by:')}\n`)
-  process.stdout.write(`  ${pc.dim('  • Windows Device Guard / Windows Defender Application Control')}\n`)
+  process.stdout.write(`\n  ${ICON.warning} ${pc.yellow(`Binary blocked by system: ${binaryPath}`)}\n\n`)
+  process.stdout.write(`  ${pc.dim('Possible causes:')}\n`)
+  process.stdout.write(`  ${pc.dim('  • Windows Device Guard / Defender Application Control')}\n`)
   process.stdout.write(`  ${pc.dim('  • Group Policy or organizational security policy')}\n`)
-  process.stdout.write(`  ${pc.dim('  • Antivirus flagging the binary as untrusted')}\n`)
-  process.stdout.write(`\n`)
+  process.stdout.write(`  ${pc.dim('  • Antivirus flagging the binary as untrusted')}\n\n`)
   process.stdout.write(`  ${pc.dim('Solutions:')}\n`)
-  process.stdout.write(`  ${pc.dim('  1. Run llama-server separately (outside locus):')}\n`)
-  process.stdout.write(`  ${pc.dim('     Set LOCUS_CLIENT_ONLY=1 and start the server manually')}\n`)
-  process.stdout.write(`  ${pc.dim('  2. Add an exclusion in Windows Security for:')}\n`)
-  process.stdout.write(`  ${pc.dim('     ' + dir)}\n`)
-  process.stdout.write(`  ${pc.dim('  3. Use a different backend (e.g., Ollama) and set LOCUS_BASE_URL')}\n`)
+  process.stdout.write(`  ${pc.dim('  1. Set LOCUS_CLIENT_ONLY=1 and run llama-server manually')}\n`)
+  process.stdout.write(`  ${pc.dim('  2. Add Windows Security exclusion for:')} ${pc.dim(dir)}\n`)
+  process.stdout.write(`  ${pc.dim('  3. Use a different backend (Ollama) + set LOCUS_BASE_URL')}\n`)
   process.stdout.write(`  ${pc.dim('  4. Run in WSL where Device Guard does not apply')}\n\n`)
 }
 
@@ -38,14 +36,14 @@ async function handleCliActivate(): Promise<void> {
 
   setConfig(loadConfig())
 
-  const result = await activateLicense(token, (s: string) => process.stdout.write(`  ${pc.dim(s)}\n`))
+  const result = await activateLicense(token, (s: string) => process.stdout.write(`  ${pc.dim(ICON.arrow)} ${pc.dim(s)}\n`))
   if (result.ok) {
-    console.log(pc.green('  ✓ License activated successfully!'))
+    console.log(`  ${ICON.success} ${pc.green('License activated successfully!')}`)
     if (result.warnings?.length) {
-      for (const w of result.warnings) console.log(pc.yellow(`  ⚠ ${w}`))
+      for (const w of result.warnings) console.log(`  ${ICON.warning} ${pc.yellow(w)}`)
     }
   } else {
-    console.log(pc.red(`  ✗ Activation failed: ${result.message}`))
+    console.log(`  ${ICON.error} ${pc.red('Activation failed:')} ${result.message}`)
     process.exit(1)
   }
 
@@ -75,7 +73,7 @@ export async function bootstrap(): Promise<void> {
     }
 
     if (runtime.isInstalled && modelPath) {
-      process.stdout.write(pc.dim(`  Starting local runtime... `))
+      process.stdout.write(`  ${pc.dim('Starting local runtime...')} `)
 
       try {
         await runtime.start({
@@ -86,32 +84,32 @@ export async function bootstrap(): Promise<void> {
           nGpuLayers: config.nGpuLayers,
         })
 
-        process.stdout.write(pc.green(`✓ (PID ${runtime.isRunning ? '...' : '?'})\n`))
+        process.stdout.write(`${ICON.success}\n`)
       } catch (err: any) {
-        process.stdout.write(pc.red(`✗ failed\n`))
+        process.stdout.write(`${ICON.error} ${pc.red('failed')}\n`)
         if (err.message.includes('blocked') || err.message.toLowerCase().includes('permission')) {
           printBlockedBinaryGuide(runtimeBinaryPath())
         } else {
-          process.stderr.write(pc.red(`  ${err.message}\n`))
+          process.stderr.write(`  ${ICON.error} ${pc.red(err.message)}\n`)
         }
       }
 
       if (runtime.isRunning) {
-        process.stdout.write(pc.dim(`  Loading model... `))
+        process.stdout.write(`  ${pc.dim('Loading model...')} `)
         const ready = await runtime.waitForReady(120_000)
         if (ready.ok) {
           await new Promise((r) => setTimeout(r, 2000))
           if (!runtime.isRunning) {
-            process.stdout.write(pc.red(`✗\n`))
-            process.stdout.write(pc.yellow('  Process exited (possibly blocked by antivirus).\n'))
-            process.stdout.write(pc.dim('  Add exclusion for: ') + runtimeDir() + '\n')
-            process.stdout.write(pc.dim('  Run with LOCUS_CLIENT_ONLY=1 and external server.\n\n'))
+            process.stdout.write(`${ICON.error}\n`)
+            process.stdout.write(`  ${ICON.warning} ${pc.yellow('Process exited (possibly blocked by antivirus).')}\n`)
+            process.stdout.write(`  ${pc.dim('Add exclusion for:')} ${runtimeDir()}\n`)
+            process.stdout.write(`  ${pc.dim('Run with LOCUS_CLIENT_ONLY=1 and external server.')}\n\n`)
           } else {
-            process.stdout.write(pc.green('✓\n'))
+            process.stdout.write(`${ICON.success}\n`)
             providerBaseUrl = `http://${config.host}:${config.port}/v1`
           }
         } else {
-          process.stdout.write(pc.red('✗\n'))
+          process.stdout.write(`${ICON.error}\n`)
         }
       }
     }
