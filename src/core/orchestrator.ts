@@ -239,6 +239,8 @@ export class Orchestrator {
         await this.inference.chatStream(pruned, undefined, wrappedOnToken, { signal: repAbort.signal })
       } catch (err: any) {
         if (err.name === 'AbortError' && signal?.aborted) throw err
+        if (err.name === 'AbortError' && repAbort.signal.aborted && !signal?.aborted) { /* repetition abort */ }
+        else throw err
       } finally {
         signal?.removeEventListener('abort', onAbort)
       }
@@ -259,6 +261,10 @@ export class Orchestrator {
     this.session.updatedAt = new Date().toISOString()
     this.store.save(this.session)
     return '\nReached maximum iteration limit.'
+  }
+
+  getProjectTree(): string {
+    return this.contextEngine.getProjectTree()
   }
 
   listSessions(): { id: string; createdAt: string; turns: number }[] {
