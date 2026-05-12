@@ -11,7 +11,7 @@ export interface TokenBudget {
 const BASE_BUDGET: TokenBudget = {
   system: 1000,
   context: 2000,
-  history: 1000,
+  history: 3000,
   response: 1500,
 }
 

@@ -8,7 +8,7 @@ import { FileSelector } from './selector.js'
 import { truncateSmart } from './truncator.js'
 import { getBudget, trimHistoryToBudget } from './budget.js'
 import { readFileSync, existsSync, mkdirSync } from 'fs'
-import type { ThinkingProgressEvent, ThinkingStage } from '../../repo/types.js'
+import type { ThinkingProgressEvent, ThinkingStage, IndexChunk } from '../../repo/types.js'
 
 export type { TokenBudget } from './budget.js'
 export { getBudget } from './budget.js'
@@ -21,7 +21,11 @@ export class ContextEngine {
   private indexer: RepoIndexer
   private indexFingerprint = ''
   private scanCache: { rootPath: string; result: ScanResult } | null = null
-  private static readonly MAX_CONTEXT_FILES = 6
+  private contentCache = new Map<string, string[]>()
+
+  private static maxContextFiles(contextBudgetChars: number): number {
+    return Math.max(8, Math.min(30, Math.floor(contextBudgetChars / 800)))
+  }
 
   constructor(nCtx = 8192) {
     this.nCtx = nCtx
@@ -37,6 +41,7 @@ export class ContextEngine {
   invalidateCache(): void {
     this.scanCache = null
     this.indexFingerprint = ''
+    this.contentCache.clear()
   }
 
   private ensureScanned(rootPath?: string): ScanResult {
@@ -107,15 +112,16 @@ export class ContextEngine {
     emit('Loading index')
     this.ensureIndex(dir, onProgress)
     emit('Selecting symbols')
-    const chunks = this.indexer.search(query, ContextEngine.MAX_CONTEXT_FILES)
+    const maxFiles = ContextEngine.maxContextFiles(budgetChars)
+    const chunks = this.indexer.search(query, maxFiles)
     emit('Scoring matches', `${chunks.length} chunks`)
     const fromIndex = chunks.length > 0
 
     if (!fromIndex) {
-      const pathRelevant = this.selector.selectRelevant(query, allFiles, ContextEngine.MAX_CONTEXT_FILES)
+      const pathRelevant = this.selector.selectRelevant(query, allFiles, maxFiles)
       if (pathRelevant.length === 0) return ''
       emit('Building context')
-      return this.assembleFromPaths(pathRelevant, budgetChars)
+      return this.assembleFromPaths(pathRelevant, dir, budgetChars)
     }
 
     const relevantPaths = new Set(chunks.map(c => c.chunk.filePath))
@@ -131,12 +137,17 @@ export class ContextEngine {
     }
 
     emit('Building context')
+    const seenFiles = new Set<string>()
     for (const sc of chunks) {
       const c = this.hydrateChunk(sc.chunk, dir)
       const lang = detectLanguageFromPath(c.filePath)
       const header = c.label ? `# ${c.filePath}:${c.startLine} (${c.label})` : `# ${c.filePath}:${c.startLine}`
       const content = c.content ?? ''
-      const block = `\n${header}\n\`\`\`${lang}\n${content}\n\`\`\`\n`
+
+      const summary = seenFiles.has(c.filePath) ? '' : this.getFileSummary(c.filePath, dir)
+      seenFiles.add(c.filePath)
+      const meta = ContextEngine.formatChunkMeta(c, content, summary)
+      const block = `\n${header}\n${meta}\n\`\`\`${lang}\n${content}\n\`\`\`\n`
 
       if (totalChars + block.length > budgetChars) {
         if (totalChars === 0) {
@@ -154,31 +165,61 @@ export class ContextEngine {
     return parts.join('\n').trim()
   }
 
-  private hydrateChunk(chunk: import('../../repo/types.js').IndexChunk, rootPath: string): import('../../repo/types.js').IndexChunk {
-    if (chunk.content && chunk.content.length > 0) return chunk
-    const fullPath = join(rootPath, chunk.filePath)
+  private readFileLines(relativePath: string, rootPath: string): string[] | null {
+    const fullPath = join(rootPath, relativePath)
     try {
       const text = readFileSync(fullPath, 'utf-8')
       const lines = text.split('\n')
-      const start = Math.max(0, chunk.startLine - 1)
-      const end = Math.min(lines.length, chunk.endLine)
-      return { ...chunk, content: lines.slice(start, end).join('\n') }
+      this.contentCache.set(relativePath, lines)
+      return lines
     } catch {
-      return { ...chunk, content: '' }
+      return null
     }
   }
 
-  private assembleFromPaths(files: import('./selector.js').FileScore[], budgetChars: number): string {
+  private getFileSummary(relativePath: string, rootPath: string): string {
+    const lines = this.contentCache.get(relativePath) ?? this.readFileLines(relativePath, rootPath)
+    if (!lines) return ''
+    return extractFileSummary(lines, relativePath)
+  }
+
+  private hydrateChunk(chunk: IndexChunk, rootPath: string): IndexChunk {
+    if (chunk.content && chunk.content.length > 0) return chunk
+    const lines = this.contentCache.get(chunk.filePath) ?? this.readFileLines(chunk.filePath, rootPath)
+    if (!lines) return { ...chunk, content: '' }
+    const start = Math.max(0, chunk.startLine - 1)
+    const end = Math.min(lines.length, chunk.endLine)
+    return { ...chunk, content: lines.slice(start, end).join('\n') }
+  }
+
+  private static formatChunkMeta(chunk: IndexChunk, content: string, summary: string): string {
+    const parts: string[] = []
+    const lineCount = content.split('\n').length
+    parts.push(`lines: ${lineCount}`)
+    if (chunk.imports && chunk.imports.length > 0) parts.push(`imports: ${chunk.imports.join(', ')}`)
+    if (chunk.exportNames && chunk.exportNames.length > 0) parts.push(`exports: ${chunk.exportNames.join(', ')}`)
+    let result = `// ${parts.join(' | ')}`
+    if (summary) result = `// Summary: ${summary}\n${result}`
+    return result
+  }
+
+  private assembleFromPaths(files: import('./selector.js').FileScore[], rootPath: string, budgetChars: number): string {
     const parts: string[] = []
     let totalChars = 0
 
     for (const file of files) {
       try {
-        const content = readFileSync(file.filePath, 'utf-8')
+        const lines = this.readFileLines(file.filePath, rootPath)
+        if (!lines) continue
         const lang = detectLanguageFromPath(file.filePath)
+        const content = lines.join('\n')
         const truncated = truncateSmart(content, file.filePath, 200)
+        const summary = extractFileSummary(lines, file.filePath)
+        const metaParts: string[] = [`lines: ${lines.length}`]
+        let meta = `// ${metaParts.join(' | ')}`
+        if (summary) meta = `// Summary: ${summary}\n${meta}`
         const header = `# ${file.filePath}`
-        const block = `\n${header}\n\`\`\`${lang}\n${truncated.content}\n\`\`\`\n`
+        const block = `\n${header}\n${meta}\n\`\`\`${lang}\n${truncated.content}\n\`\`\`\n`
 
         if (totalChars + block.length > budgetChars) {
           if (totalChars === 0) {
@@ -251,6 +292,48 @@ function buildCompactTree(root: FileNode, maxDepth: number, rootDir: string, rel
   }
   walk(root.children ?? [], '', 0)
   return lines.join('\n')
+}
+
+function extractFileSummary(lines: string[], filePath: string): string {
+  const maxScan = Math.min(lines.length, 30)
+  const commentLines: string[] = []
+  let startIdx = 0
+  if (lines.length > 0 && lines[0].trimStart().startsWith('#!')) startIdx = 1
+
+  let i = startIdx
+  while (i < maxScan) {
+    const trimmed = lines[i].trim()
+    if (trimmed.startsWith('/**')) {
+      i++
+      while (i < maxScan) {
+        const line = lines[i].trim()
+        if (line.endsWith('*/')) {
+          const cleaned = line.replace('*/', '').trim().replace(/^\*\s?/, '')
+          if (cleaned) commentLines.push(cleaned)
+          break
+        }
+        const cleaned = line.replace(/^\*\s?/, '').trim()
+        if (cleaned) commentLines.push(cleaned)
+        i++
+      }
+      break
+    }
+    if (trimmed.startsWith('//') && !trimmed.startsWith('///')) {
+      commentLines.push(trimmed.replace(/^\/\/\s?/, '').trim())
+    } else if (trimmed !== '' && !trimmed.startsWith('//')) {
+      break
+    }
+    i++
+  }
+
+  if (commentLines.length > 0) {
+    const first = commentLines.find(l => l.length > 0)
+    if (first) return first.length > 120 ? first.slice(0, 117) + '...' : first
+  }
+
+  const fileName = filePath.split('/').pop()?.split('\\').pop() ?? ''
+  const withoutExt = fileName.replace(/\.[^.]+$/, '')
+  return withoutExt.replace(/([A-Z])/g, ' $1').replace(/[-_.]/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function detectLanguageFromPath(filePath: string): string {

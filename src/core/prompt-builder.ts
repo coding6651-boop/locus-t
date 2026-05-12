@@ -18,11 +18,12 @@ export class PromptBuilder {
   }
 
   buildSystem(): Message {
-    let content = buildSystemPrompt(this.systemExtra ?? undefined)
-    if (this.fileContext) {
-      content += `\n\nRelevant project files:\n${this.fileContext}`
-    }
+    const content = buildSystemPrompt(this.systemExtra ?? undefined)
     return { role: 'system', content }
+  }
+
+  buildContextMessage(): Message {
+    return { role: 'user', content: `Here are the relevant project files:\n${this.fileContext}` }
   }
 
   buildUser(input: string): Message {

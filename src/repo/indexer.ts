@@ -1,7 +1,8 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync } from 'fs'
-import { join } from 'path'
+import { join, relative, extname } from 'path'
 import { createHash } from 'crypto'
 import { gzipSync, gunzipSync } from 'zlib'
+import * as ts from 'typescript'
 import { Chunker } from './chunker.js'
 import type {
   IndexChunk,
@@ -14,6 +15,9 @@ import type {
   SymbolShardV2,
   IndexManifestV2,
   SymbolRefV2,
+  DepGraphShardV2,
+  XRefShardV2,
+  XRefEntry,
 } from './types.js'
 import { detectLanguage } from './scanner.js'
 
@@ -31,13 +35,13 @@ const STOP_WORDS = new Set([
   'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how',
   'all', 'each', 'every', 'both', 'few', 'more', 'most', 'some',
   'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too',
-  'very', 'just', 'get', 'got', 'fix', 'make', 'need', 'want',
-  'please', 'help', 'find', 'look', 'show', 'tell', 'use', 'using',
-  'like', 'code', 'file', 'function', 'class', 'bug', 'issue', 'error',
+  'very', 'just',
 ])
 
 const MIN_TERM_LENGTH = 2
 const MANIFEST_FILE = 'index-manifest.json'
+
+const C_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'])
 
 export class RepoIndexer {
   private chunks: IndexChunk[] = []
@@ -52,6 +56,9 @@ export class RepoIndexer {
   private k1 = 1.2
   private b = 0.75
   private rootPath = process.cwd()
+  private depForward = new Map<string, string[]>()
+  private depReverse = new Map<string, string[]>()
+  private xrefs = new Map<string, XRefEntry[]>()
 
   get isBuilt(): boolean {
     return this.chunkMeta.length > 0
@@ -86,9 +93,13 @@ export class RepoIndexer {
     this.symbols = []
     this.docCount = 0
     this.avgDocLen = 0
+    this.depForward.clear()
+    this.depReverse.clear()
+    this.xrefs.clear()
 
     const chunker = new Chunker()
     let totalTokens = 0
+    const allFileImports: { file: string; sources: string[] }[] = []
 
     for (let fi = 0; fi < files.length; fi++) {
       const file = files[fi]
@@ -104,7 +115,25 @@ export class RepoIndexer {
       }
 
       const lang = detectLanguage(file)
-      const fileSymbols = this.extractSymbols(content, file)
+      const ext = extname(file).toLowerCase()
+
+      let fileSymbols: Omit<SymbolRefV2, 'chunkIndex'>[]
+      let fileImports: { source: string; startLine: number; endLine: number }[]
+      let fileExports: { name: string; startLine: number; endLine: number }[]
+
+      if (C_EXTENSIONS.has(ext)) {
+        const parsed = this.parseWithAST(content, file)
+        fileSymbols = parsed.symbols
+        fileImports = parsed.imports
+        fileExports = parsed.exports
+      } else {
+        fileSymbols = this.extractSymbols(content, file)
+        fileImports = this.extractFileImports(content)
+        fileExports = this.extractFileExports(content)
+      }
+
+      allFileImports.push({ file, sources: fileImports.map(i => i.source) })
+
       const rawChunks = chunker.chunkByBoundaries(content)
 
       for (const c of rawChunks) {
@@ -113,6 +142,14 @@ export class RepoIndexer {
         const id = `${file}:${c.startLine}`
         const tokens = this.tokenize(chunkContent)
         if (tokens.length === 0) continue
+
+        const chunkImportSources = fileImports
+          .filter(imp => imp.startLine >= c.startLine && imp.startLine <= c.endLine)
+          .map(imp => imp.source)
+        const chunkExportNames = fileExports
+          .filter(exp => exp.startLine >= c.startLine && exp.startLine <= c.endLine)
+          .map(exp => exp.name)
+        const chunkKeywords = this.extractChunkKeywords(chunkContent, chunkImportSources)
 
         const normalizedFile = file.replace(/\\/g, '/')
         const chunkIndex = this.chunks.length
@@ -124,6 +161,9 @@ export class RepoIndexer {
           endLine: c.endLine,
           language: lang,
           label: c.label,
+          imports: chunkImportSources.length > 0 ? chunkImportSources : undefined,
+          exportNames: chunkExportNames.length > 0 ? chunkExportNames : undefined,
+          keywords: chunkKeywords.length > 0 ? chunkKeywords : undefined,
         })
 
         const pathLower = normalizedFile.toLowerCase()
@@ -136,6 +176,9 @@ export class RepoIndexer {
           label: c.label,
           docLen: tokens.length,
           pathBoostBase: pathLower.startsWith('src/') ? 0.5 : 0,
+          imports: chunkImportSources.length > 0 ? chunkImportSources : undefined,
+          exportNames: chunkExportNames.length > 0 ? chunkExportNames : undefined,
+          keywords: chunkKeywords.length > 0 ? chunkKeywords : undefined,
         })
 
         this.chunkLen.push(tokens.length)
@@ -162,9 +205,12 @@ export class RepoIndexer {
 
     this.terms = [...this.postings.keys()]
     this.avgDocLen = this.docCount > 0 ? totalTokens / this.docCount : 0
+
+    this.buildDependencyGraph(files, allFileImports)
+    this.buildCrossReferences()
   }
 
-  search(query: string, topK = 6): ScoredChunk[] {
+  search(query: string, topK = 15): ScoredChunk[] {
     if (this.chunkMeta.length === 0) return []
     const queryTokens = this.tokenize(query)
     if (queryTokens.length === 0) return []
@@ -203,7 +249,36 @@ export class RepoIndexer {
         candidateChunks.add(sym.chunkIndex)
         scoreMap.set(sym.chunkIndex, (scoreMap.get(sym.chunkIndex) || 0) + symBoost)
       }
+      if (sym.exported) {
+        const symLower = sym.name.toLowerCase()
+        for (const qt of uniqueQueryTerms) {
+          if (symLower === qt) scoreMap.set(sym.chunkIndex, (scoreMap.get(sym.chunkIndex) || 0) + 3)
+        }
+      }
     }
+
+    for (const ci of candidateChunks) {
+      const meta = this.chunkMeta[ci]
+      if (!meta) continue
+      let metaBoost = 0
+      const impNames = meta.imports?.map(s => s.split('/').pop()?.replace(/\.[^.]+$/, '')?.toLowerCase() ?? '') ?? []
+      const expNames = meta.exportNames?.map(s => s.toLowerCase()) ?? []
+      const keywords = meta.keywords ?? []
+
+      for (const qt of uniqueQueryTerms) {
+        if (impNames.some(n => n === qt)) metaBoost += 5
+        else if (impNames.some(n => n.includes(qt))) metaBoost += 3
+        if (expNames.some(n => n === qt)) metaBoost += 5
+        else if (expNames.some(n => n.includes(qt))) metaBoost += 3
+        if (keywords.some(k => k.includes(qt) || qt.includes(k))) metaBoost += 3
+      }
+
+      if (metaBoost > 0) {
+        scoreMap.set(ci, (scoreMap.get(ci) || 0) + metaBoost)
+      }
+    }
+
+    const fileHubBoost = this.computeFileHubBoost(candidateChunks)
 
     if (candidateChunks.size === 0) return []
 
@@ -212,20 +287,71 @@ export class RepoIndexer {
       const score = scoreMap.get(chunkIndex) || 0
       if (score <= 0) continue
 
-      const chunk = this.chunks[chunkIndex] ?? this.chunkMetaToChunk(this.chunkMeta[chunkIndex])
+      const meta = this.chunkMeta[chunkIndex]
+      const chunk = this.chunks[chunkIndex] ?? this.chunkMetaToChunk(meta)
       const pathLower = chunk.filePath.toLowerCase()
-      let pathBoost = this.chunkMeta[chunkIndex]?.pathBoostBase ?? 0
+      let pathBoost = meta?.pathBoostBase ?? 0
       for (const term of uniqueQueryTerms) {
         const fileName = pathLower.split('/').pop()?.replace(/\.[^.]+$/, '') ?? ''
         if (fileName === term) pathBoost += 5
         else if (fileName.includes(term)) pathBoost += 3
         if (pathLower.includes('/' + term + '/') || pathLower.includes('/' + term + '.') || pathLower.includes('/' + term + '-')) pathBoost += 2
       }
-      scored.push({ chunk, score: score + pathBoost })
+
+      const depBoost = fileHubBoost.get(chunk.filePath) ?? 0
+      const xrefBoost = this.computeXRefBoost(chunk.filePath, uniqueQueryTerms)
+
+      scored.push({ chunk, score: score + pathBoost + depBoost + xrefBoost })
     }
 
     scored.sort((a, b) => b.score - a.score)
     return scored.slice(0, topK)
+  }
+
+  private computeFileHubBoost(candidateChunks: Set<number>): Map<string, number> {
+    const boost = new Map<string, number>()
+    const visited = new Set<string>()
+
+    for (const ci of candidateChunks) {
+      const meta = this.chunkMeta[ci]
+      if (!meta) continue
+      const fp = meta.filePath
+      if (visited.has(fp)) continue
+      visited.add(fp)
+
+      const dependents = this.depReverse.get(fp)
+      if (dependents) {
+        for (const dep of dependents) {
+          const current = boost.get(dep) ?? 0
+          boost.set(dep, Math.max(current, 8))
+        }
+      }
+
+      const dependencies = this.depForward.get(fp)
+      if (dependencies) {
+        for (const dep of dependencies) {
+          const current = boost.get(dep) ?? 0
+          boost.set(dep, Math.max(current, 4))
+        }
+      }
+    }
+
+    return boost
+  }
+
+  private computeXRefBoost(filePath: string, queryTerms: string[]): number {
+    let boost = 0
+    for (const qt of queryTerms) {
+      const refs = this.xrefs.get(qt)
+      if (!refs) continue
+      for (const ref of refs) {
+        if (ref.filePath === filePath) {
+          boost += 4
+          break
+        }
+      }
+    }
+    return boost
   }
 
   save(cacheDir: string): void {
@@ -248,17 +374,45 @@ export class RepoIndexer {
       symbols: this.symbols,
     }
 
+    const depsShard: DepGraphShardV2 = {
+      version: 2,
+      fingerprint: this.fingerprint,
+      forward: Object.fromEntries(this.depForward),
+      reverse: Object.fromEntries(this.depReverse),
+    }
+
+    const xrefsShard: XRefShardV2 = {
+      version: 2,
+      fingerprint: this.fingerprint,
+      refs: Object.fromEntries(this.xrefs),
+    }
+
     const termsFile = `terms-${this.fingerprint}.json.gz`
     const chunksFile = `chunks-${this.fingerprint}.json.gz`
     const symbolsFile = `symbols-${this.fingerprint}.json.gz`
+    const depsFile = `deps-${this.fingerprint}.json.gz`
+    const xrefsFile = `xrefs-${this.fingerprint}.json.gz`
 
     this.writeCompressedJson(join(cacheDir, termsFile), termsShard)
     this.writeCompressedJson(join(cacheDir, chunksFile), chunksShard)
     this.writeCompressedJson(join(cacheDir, symbolsFile), symbolsShard)
+    this.writeCompressedJson(join(cacheDir, depsFile), depsShard)
+    this.writeCompressedJson(join(cacheDir, xrefsFile), xrefsShard)
 
     const termsPath = join(cacheDir, termsFile)
     const chunksPath = join(cacheDir, chunksFile)
     const symbolsPath = join(cacheDir, symbolsFile)
+    const depsPath = join(cacheDir, depsFile)
+    const xrefsPath = join(cacheDir, xrefsFile)
+
+    function shardMeta(file: string, path: string): { file: string; checksum: string; sizeBytes: number } {
+      return {
+        file,
+        checksum: createHash('sha1').update(readFileSync(path)).digest('hex'),
+        sizeBytes: statSync(path).size,
+      }
+    }
+
     const manifest: IndexManifestV2 = {
       version: 2,
       fingerprint: this.fingerprint,
@@ -269,21 +423,11 @@ export class RepoIndexer {
       avgDocLen: this.avgDocLen,
       schema: 'manifest-shards-v2',
       shards: {
-        terms: {
-          file: termsFile,
-          checksum: this.checksumFile(termsPath),
-          sizeBytes: statSync(termsPath).size,
-        },
-        chunks: {
-          file: chunksFile,
-          checksum: this.checksumFile(chunksPath),
-          sizeBytes: statSync(chunksPath).size,
-        },
-        symbols: {
-          file: symbolsFile,
-          checksum: this.checksumFile(symbolsPath),
-          sizeBytes: statSync(symbolsPath).size,
-        },
+        terms: shardMeta(termsFile, termsPath),
+        chunks: shardMeta(chunksFile, chunksPath),
+        symbols: shardMeta(symbolsFile, symbolsPath),
+        deps: shardMeta(depsFile, depsPath),
+        xrefs: shardMeta(xrefsFile, xrefsPath),
       },
     }
 
@@ -297,14 +441,16 @@ export class RepoIndexer {
       try {
         const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as IndexManifestV2
         if (manifest.version !== 2 || manifest.fingerprint !== fingerprint) return false
-        const termsPath = join(cacheDir, manifest.shards.terms.file)
-        const chunksPath = join(cacheDir, manifest.shards.chunks.file)
-        const symbolsPath = join(cacheDir, manifest.shards.symbols.file)
+
+        const shard = manifest.shards
+        const termsPath = join(cacheDir, shard.terms.file)
+        const chunksPath = join(cacheDir, shard.chunks.file)
+        const symbolsPath = join(cacheDir, shard.symbols.file)
         if (!existsSync(termsPath) || !existsSync(chunksPath) || !existsSync(symbolsPath)) return false
 
-        if (this.checksumFile(termsPath) !== manifest.shards.terms.checksum) return false
-        if (this.checksumFile(chunksPath) !== manifest.shards.chunks.checksum) return false
-        if (this.checksumFile(symbolsPath) !== manifest.shards.symbols.checksum) return false
+        if (this.checksumFile(termsPath) !== shard.terms.checksum) return false
+        if (this.checksumFile(chunksPath) !== shard.chunks.checksum) return false
+        if (this.checksumFile(symbolsPath) !== shard.symbols.checksum) return false
 
         const terms = this.readCompressedJson<TermShardV2>(termsPath)
         const chunks = this.readCompressedJson<ChunkShardV2>(chunksPath)
@@ -321,6 +467,35 @@ export class RepoIndexer {
         this.postings.clear()
         for (const [term, list] of Object.entries(terms.postings)) this.postings.set(term, list)
         this.terms = [...this.postings.keys()]
+        this.depForward.clear()
+        this.depReverse.clear()
+        this.xrefs.clear()
+
+        if (shard.deps) {
+          const depsPath = join(cacheDir, shard.deps.file)
+          if (existsSync(depsPath)) {
+            try {
+              const deps = this.readCompressedJson<DepGraphShardV2>(depsPath)
+              if (deps.fingerprint === fingerprint) {
+                for (const [k, v] of Object.entries(deps.forward)) this.depForward.set(k, v)
+                for (const [k, v] of Object.entries(deps.reverse)) this.depReverse.set(k, v)
+              }
+            } catch {}
+          }
+        }
+
+        if (shard.xrefs) {
+          const xrefsPath = join(cacheDir, shard.xrefs.file)
+          if (existsSync(xrefsPath)) {
+            try {
+              const xrefs = this.readCompressedJson<XRefShardV2>(xrefsPath)
+              if (xrefs.fingerprint === fingerprint) {
+                for (const [k, v] of Object.entries(xrefs.refs)) this.xrefs.set(k, v)
+              }
+            } catch {}
+          }
+        }
+
         return true
       } catch {
         return false
@@ -358,6 +533,9 @@ export class RepoIndexer {
       for (const [term, list] of Object.entries(data.postings)) this.postings.set(term, list)
       this.terms = [...this.postings.keys()]
       this.symbols = []
+      this.depForward.clear()
+      this.depReverse.clear()
+      this.xrefs.clear()
       return true
     } catch {
       return false
@@ -387,7 +565,321 @@ export class RepoIndexer {
       endLine: meta.endLine,
       language: meta.language,
       label: meta.label,
+      imports: meta.imports,
+      exportNames: meta.exportNames,
+      keywords: meta.keywords,
     }
+  }
+
+  private buildDependencyGraph(
+    files: string[],
+    allFileImports: { file: string; sources: string[] }[],
+  ): void {
+    const fileSet = new Set(files.map(f => f.replace(/\\/g, '/')))
+
+    for (const { file, sources } of allFileImports) {
+      const normalizedFile = file.replace(/\\/g, '/')
+      const resolvedDeps: string[] = []
+
+      for (const source of sources) {
+        if (!source.startsWith('.') && !source.startsWith('/')) continue
+
+        const baseDir = normalizedFile.split('/').slice(0, -1).join('/')
+        const resolved = this.resolveModulePath(baseDir, source)
+        if (resolved && fileSet.has(resolved)) {
+          resolvedDeps.push(resolved)
+        }
+      }
+
+      if (resolvedDeps.length > 0) {
+        this.depForward.set(normalizedFile, resolvedDeps)
+        for (const dep of resolvedDeps) {
+          const existing = this.depReverse.get(dep) ?? []
+          existing.push(normalizedFile)
+          this.depReverse.set(dep, existing)
+        }
+      }
+    }
+  }
+
+  private resolveModulePath(baseDir: string, specifier: string): string | null {
+    const exts = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '']
+    const base = specifier.startsWith('/')
+      ? specifier.slice(1)
+      : baseDir ? baseDir + '/' + specifier : specifier
+
+    for (const ext of exts) {
+      const p = base + ext
+      if (existsSync(join(this.rootPath, p))) return p.replace(/\\/g, '/')
+    }
+
+    const indexBase = base + '/index'
+    for (const ext of exts) {
+      if (ext) {
+        const p = indexBase + ext
+        if (existsSync(join(this.rootPath, p))) return p.replace(/\\/g, '/')
+      }
+    }
+
+    return null
+  }
+
+  private buildCrossReferences(): void {
+    const allNames = new Map<string, Set<string>>()
+
+    for (const sym of this.symbols) {
+      const fp = sym.filePath
+      if (!allNames.has(fp)) allNames.set(fp, new Set())
+      allNames.get(fp)!.add(sym.name.toLowerCase())
+    }
+
+    for (let ci = 0; ci < this.chunks.length; ci++) {
+      const meta = this.chunkMeta[ci]
+      if (!meta) continue
+      const content = this.chunks[ci]?.content
+      if (!content) continue
+
+      const definingFile = meta.filePath
+      const lowerContent = content.toLowerCase()
+
+      for (const [filePath, names] of allNames) {
+        if (filePath === definingFile) continue
+        for (const name of names) {
+          if (name.length < 3) continue
+          const re = new RegExp('\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b')
+          if (re.test(lowerContent)) {
+            const lineIdx = content.split('\n').findIndex(l => l.toLowerCase().includes(name))
+            const entry: XRefEntry = {
+              filePath: definingFile,
+              chunkIndex: ci,
+              line: lineIdx >= 0 ? lineIdx + 1 : meta.startLine,
+            }
+            const existing = this.xrefs.get(name) ?? []
+            existing.push(entry)
+            this.xrefs.set(name, existing)
+          }
+        }
+      }
+    }
+  }
+
+  private parseWithAST(content: string, filePath: string): {
+    symbols: Omit<SymbolRefV2, 'chunkIndex'>[]
+    imports: { source: string; startLine: number; endLine: number }[]
+    exports: { name: string; startLine: number; endLine: number }[]
+  } {
+    const symbols: Omit<SymbolRefV2, 'chunkIndex'>[] = []
+    const imports: { source: string; startLine: number; endLine: number }[] = []
+    const exports: { name: string; startLine: number; endLine: number }[] = []
+
+    let sourceFile: ts.SourceFile
+    try {
+      sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true)
+    } catch {
+      const regexResult = this.extractSymbols(content, filePath)
+      const regexImports = this.extractFileImports(content)
+      const regexExports = this.extractFileExports(content)
+      return { symbols: regexResult, imports: regexImports, exports: regexExports }
+    }
+
+    const getDocPreview = (node: ts.Node): string | undefined => {
+      const leading = ts.getLeadingCommentRanges(content, node.getFullStart())
+      if (leading && leading.length > 0) {
+        const last = leading[leading.length - 1]
+        return content.slice(last.pos, last.end).trim().slice(0, 200)
+      }
+      return undefined
+    }
+
+    const hasExportModifier = (node: ts.Node): boolean => {
+      return (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0
+    }
+
+    const addSymbol = (
+      name: string,
+      kind: SymbolRefV2['kind'],
+      node: ts.Node,
+      exported: boolean,
+    ) => {
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+      const sig = content.slice(node.getStart(), node.getStart() + Math.min(220, node.getWidth())).trim()
+      const dp = getDocPreview(node)
+      symbols.push({
+        name,
+        kind,
+        signature: sig,
+        filePath: filePath.replace(/\\/g, '/'),
+        startLine: line,
+        endLine: line + content.slice(node.getStart(), node.getEnd()).split('\n').length - 1,
+        docPreview: dp,
+        exported,
+      })
+    }
+
+    function visit(node: ts.Node): void {
+      if (ts.isFunctionDeclaration(node) && node.name) {
+        addSymbol(node.name.text, 'function', node, hasExportModifier(node))
+      } else if (ts.isClassDeclaration(node) && node.name) {
+        addSymbol(node.name.text, 'class', node, hasExportModifier(node))
+      } else if (ts.isInterfaceDeclaration(node) && node.name) {
+        addSymbol(node.name.text, 'interface', node, hasExportModifier(node))
+      } else if (ts.isTypeAliasDeclaration(node) && node.name) {
+        addSymbol(node.name.text, 'type', node, hasExportModifier(node))
+      } else if (ts.isEnumDeclaration(node) && node.name) {
+        addSymbol(node.name.text, 'enum', node, hasExportModifier(node))
+      } else if (ts.isMethodDeclaration(node) && node.name && ts.isIdentifier(node.name)) {
+        addSymbol(node.name.text, 'method', node, hasExportModifier(node))
+      } else if (ts.isGetAccessorDeclaration(node) && node.name && ts.isIdentifier(node.name)) {
+        addSymbol('get ' + node.name.text, 'method', node, hasExportModifier(node))
+      } else if (ts.isSetAccessorDeclaration(node) && node.name && ts.isIdentifier(node.name)) {
+        addSymbol('set ' + node.name.text, 'method', node, hasExportModifier(node))
+      } else if (ts.isPropertyDeclaration(node) && node.name && ts.isIdentifier(node.name)) {
+        addSymbol(node.name.text, 'field', node, hasExportModifier(node))
+      } else if (ts.isVariableDeclaration(node) && node.name && ts.isIdentifier(node.name)) {
+        const init = node.initializer
+        if (init) {
+          if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+            addSymbol(node.name.text, 'arrow', node, hasExportModifier(node.parent.parent))
+          } else if (ts.isClassExpression(init)) {
+            addSymbol(node.name.text, 'class', node, hasExportModifier(node.parent.parent))
+          }
+        }
+      } else if (ts.isImportDeclaration(node)) {
+        if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+          const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+          imports.push({ source: node.moduleSpecifier.text, startLine: line, endLine: line })
+        }
+      } else if (ts.isExportDeclaration(node)) {
+        if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+          const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+          imports.push({ source: node.moduleSpecifier.text, startLine: line, endLine: line })
+        }
+        if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+          const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+          for (const spec of node.exportClause.elements) {
+            exports.push({ name: spec.name.text, startLine: line, endLine: line })
+          }
+        }
+      } else if (ts.isExportAssignment(node) && node.isExportEquals !== false) {
+        if (node.expression && ts.isIdentifier(node.expression)) {
+          const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+          exports.push({ name: node.expression.text, startLine: line, endLine: line })
+        }
+      }
+
+      ts.forEachChild(node, visit)
+    }
+
+    visit(sourceFile)
+
+    if (symbols.length === 0 && imports.length === 0 && exports.length === 0) {
+      const fallback = this.extractSymbols(content, filePath)
+      if (fallback.length > 0) {
+        return { symbols: fallback, imports: this.extractFileImports(content), exports: this.extractFileExports(content) }
+      }
+    }
+
+    return { symbols, imports, exports }
+  }
+
+  private extractFileImports(content: string): { source: string; startLine: number; endLine: number }[] {
+    const imports: { source: string; startLine: number; endLine: number }[] = []
+    const lines = content.split('\n')
+    let i = 0
+    while (i < lines.length) {
+      const line = lines[i]
+      let m: RegExpMatchArray | null
+
+      m = line.match(/^\s*import\s+(?:type\s+)?(?:\{[^}]*\}|[^;{]+)\s+from\s+['"]([^'"]+)['"]/)
+      if (m) {
+        imports.push({ source: m[1], startLine: i + 1, endLine: i + 1 })
+        i++
+        continue
+      }
+
+      m = line.match(/^\s*import\s+['"]([^'"]+)['"]/)
+      if (m) {
+        imports.push({ source: m[1], startLine: i + 1, endLine: i + 1 })
+        i++
+        continue
+      }
+
+      m = line.match(/(?:const|let|var)\s+\w+\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/)
+      if (m) {
+        imports.push({ source: m[1], startLine: i + 1, endLine: i + 1 })
+        i++
+        continue
+      }
+
+      m = line.match(/import\s*\(\s*['"]([^'"]+)['"]\s*\)/)
+      if (m) {
+        imports.push({ source: m[1], startLine: i + 1, endLine: i + 1 })
+        i++
+        continue
+      }
+
+      i++
+    }
+    return imports
+  }
+
+  private extractFileExports(content: string): { name: string; startLine: number; endLine: number }[] {
+    const exports: { name: string; startLine: number; endLine: number }[] = []
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+
+      let m = line.match(/^\s*export\s+(?:default\s+)?(?:function|class|interface|type|enum|const|let|var|async\s+function)\s+([A-Za-z_][\w]*)/)
+      if (m) { exports.push({ name: m[1], startLine: i + 1, endLine: i + 1 }); continue }
+
+      m = line.match(/^\s*export\s*\{\s*([^}]+)\s*\}/)
+      if (m) {
+        const names = m[1].split(',').map(s => s.trim().split(/\s+as\s+/)[0].trim()).filter(Boolean)
+        for (const n of names) exports.push({ name: n, startLine: i + 1, endLine: i + 1 })
+        continue
+      }
+
+      m = line.match(/^\s*export\s+default\s+(.+)/)
+      if (m) {
+        const parts = m[1].trim().split(/[;\s]/)
+        if (parts[0] && parts[0] !== '{' && parts[0] !== 'function' && parts[0] !== 'class') {
+          exports.push({ name: parts[0], startLine: i + 1, endLine: i + 1 })
+        }
+      }
+    }
+    return exports
+  }
+
+  private extractChunkKeywords(content: string, importSources: string[]): string[] {
+    const keywords: string[] = []
+
+    const commentLines = content.match(/\/\/\s*(.+?)$|#\s*(.+?)$/gm)
+    if (commentLines) {
+      for (const cl of commentLines) {
+        const text = cl.replace(/^\/\/\s*|^#\s*/, '')
+        const words = text.toLowerCase().split(/[^a-zA-Z0-9_]+/).filter(w => w.length >= 3 && !STOP_WORDS.has(w))
+        keywords.push(...words)
+      }
+    }
+
+    for (const src of importSources) {
+      const name = src.split('/').pop()?.replace(/\.[^.]+$/, '') ?? ''
+      if (name.length >= 2) keywords.push(name)
+    }
+
+    const markers = content.match(/\b(TODO|FIXME|HACK|XXX|BUG|TEMP|NOTE|OPTIMIZE|WORKAROUND)\b/gi)
+    if (markers) keywords.push(...markers.map(m => m.toLowerCase()))
+
+    const strLiterals = content.match(/['"]([^'"]{3,60})['"]/g)
+    if (strLiterals) {
+      for (const sl of strLiterals) {
+        const text = sl.replace(/['"]/g, '').toLowerCase()
+        const words = text.split(/[^a-zA-Z0-9_]+/).filter(w => w.length >= 3 && !STOP_WORDS.has(w))
+        keywords.push(...words)
+      }
+    }
+
+    return [...new Set(keywords)]
   }
 
   private tokenize(text: string): string[] {
@@ -419,13 +911,17 @@ export class RepoIndexer {
     const out: Omit<SymbolRefV2, 'chunkIndex'>[] = []
     const lines = content.split('\n')
     const patterns: { kind: SymbolRefV2['kind']; re: RegExp }[] = [
-      { kind: 'function', re: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][\w]*)\s*\(([^)]*)\)/ },
+      { kind: 'function', re: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][\w]*)\s*\(/ },
       { kind: 'class', re: /^\s*(?:export\s+)?class\s+([A-Za-z_][\w]*)/ },
       { kind: 'interface', re: /^\s*(?:export\s+)?interface\s+([A-Za-z_][\w]*)/ },
       { kind: 'type', re: /^\s*(?:export\s+)?type\s+([A-Za-z_][\w]*)\s*=/ },
       { kind: 'enum', re: /^\s*(?:export\s+)?enum\s+([A-Za-z_][\w]*)/ },
-      { kind: 'const', re: /^\s*(?:export\s+)?const\s+([A-Za-z_][\w]*)\s*=/ },
+      { kind: 'const', re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][\w]*)\s*=/ },
       { kind: 'method', re: /^\s*(?:public|private|protected)?\s*(?:async\s+)?([A-Za-z_][\w]*)\s*\(([^)]*)\)\s*\{/ },
+      { kind: 'arrow', re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][\w]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>/ },
+      { kind: 'arrow', re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][\w]*)\s*=\s*function\s*(?:\([^)]*\))?/ },
+      { kind: 'class', re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][\w]*)\s*=\s*class\s/ },
+      { kind: 'field', re: /^\s*(?:public|private|protected|readonly|static)\s+([A-Za-z_][\w]*)\s*[=:]\s*(?!function|class|async|\(|=>)/ },
     ]
 
     for (let i = 0; i < lines.length; i++) {
@@ -436,6 +932,7 @@ export class RepoIndexer {
         const name = m[1]
         const signature = line.trim().slice(0, 220)
         const docPreview = i > 0 && lines[i - 1].trim().startsWith('//') ? lines[i - 1].trim().slice(0, 200) : undefined
+        const exported = /^\s*export\s/.test(line)
         out.push({
           name,
           kind: p.kind,
@@ -444,6 +941,7 @@ export class RepoIndexer {
           startLine: i + 1,
           endLine: i + 1,
           docPreview,
+          exported,
         })
         break
       }

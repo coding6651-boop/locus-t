@@ -20,9 +20,7 @@ const STOP_WORDS = new Set([
   'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how',
   'all', 'each', 'every', 'both', 'few', 'more', 'most', 'some',
   'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too',
-  'very', 'just', 'get', 'got', 'fix', 'make', 'need', 'want',
-  'please', 'help', 'find', 'look', 'show', 'tell', 'use', 'using',
-  'like', 'code', 'file', 'function', 'class', 'bug', 'issue', 'error',
+  'very', 'just',
 ])
 
 function extractKeywords(query: string): string[] {

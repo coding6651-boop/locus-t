@@ -159,6 +159,10 @@ export class CLI {
       process.stdout.write(HELP + '\n')
     }
 
+    if (this.licensed && this.ready) {
+      this.autoIndexSilently()
+    }
+
     rl.prompt()
 
     rl.on('line', async (line: string) => {
@@ -536,7 +540,6 @@ export class CLI {
         process.stdout.write(`  ${pc.yellow('Skipped.')}\n\n`)
         return
       }
-
       process.stdout.write('\n')
       this.renderIndexProgress({ current: 1, total: 1, file: '' }, true)
       const result = mgr.index(rootPath, (p) => this.renderIndexProgress(p, false))
@@ -552,6 +555,21 @@ export class CLI {
     } else {
       process.stdout.write(`\n  ${pc.dim('Type /index again to force re-index.')}\n\n`)
     }
+  }
+
+  private autoIndexSilently(): void {
+    const rootPath = process.cwd()
+    const mgr = this.indexManager
+    const status = mgr.status(rootPath)
+
+    if (status.kind !== 'current') {
+      const result = mgr.index(rootPath)
+      process.stdout.write(`  ${pc.dim(`Indexed ${result.fileCount} files, ${result.chunkCount} chunks`)}\n`)
+    }
+
+    mgr.startWatcher(rootPath, () => {
+      mgr.rebuild(rootPath)
+    })
   }
 
   private renderIndexProgress(p: IndexProgress, done: boolean): void {
