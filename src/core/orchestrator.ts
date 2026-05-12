@@ -11,6 +11,7 @@ import { isFastPathCandidate, resolveFastPath } from './fast-path.js'
 import pc from 'picocolors'
 import { ThinkingStatus } from '../ui/thinking-status.js'
 import { readFileSync, statSync } from 'fs'
+import { estimateTokens } from '../ai/tokenizer.js'
 import { resolve } from 'path'
 import { getToolDefinitions, getTool } from '../tools/registry.js'
 
@@ -27,6 +28,7 @@ export class Orchestrator {
   private store: SessionStore
   private cache: ResponseCache
   private maxIterations = 25
+  private lastContextTokens = 0
 
   constructor(provider: LLMProvider, resumeSessionId?: string) {
     this.store = new SessionStore(getConfig().storageDir)
@@ -49,6 +51,11 @@ export class Orchestrator {
     }
 
     this.initSystemMessage()
+  }
+
+  getContextUsage(): { used: number; max: number } {
+    const max = getConfig().nCtx ?? 8192
+    return { used: this.lastContextTokens, max }
   }
 
   private initSystemMessage(): void {
@@ -182,6 +189,7 @@ export class Orchestrator {
     const readFilesSet = new Set<string>()
     for (let i = 0; i < this.maxIterations; i++) {
       const pruned = this.contextEngine.prune(this.session.messages)
+      this.lastContextTokens = pruned.reduce((sum, m) => sum + estimateTokens(m.content ?? ''), 0)
       const toolDefs = useAgentic ? getToolDefinitions() : undefined
       const response = await this.inference.chat(pruned, toolDefs)
 
@@ -314,6 +322,7 @@ export class Orchestrator {
 
     for (let i = 0; i < this.maxIterations; i++) {
       const pruned = this.contextEngine.prune(this.session.messages)
+      this.lastContextTokens = pruned.reduce((sum, m) => sum + estimateTokens(m.content ?? ''), 0)
       status.update('Generating response')
       let firstToken = true
       let accumulated = ''
