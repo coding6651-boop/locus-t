@@ -6,6 +6,9 @@ export interface IndexChunk {
   endLine: number
   language: string
   label?: string
+  imports?: string[]
+  exportNames?: string[]
+  keywords?: string[]
 }
 
 export interface ScoredChunk {
@@ -22,7 +25,7 @@ export interface InvertedIndexData {
   avgDocLen: number
 }
 
-export type SymbolKind = 'function' | 'class' | 'interface' | 'type' | 'enum' | 'const' | 'method'
+export type SymbolKind = 'function' | 'class' | 'interface' | 'type' | 'enum' | 'const' | 'method' | 'arrow' | 'decorator' | 'field'
 
 export interface SymbolRefV2 {
   name: string
@@ -33,6 +36,7 @@ export interface SymbolRefV2 {
   endLine: number
   chunkIndex: number
   docPreview?: string
+  exported?: boolean
 }
 
 export interface ChunkEntryV2 {
@@ -44,6 +48,9 @@ export interface ChunkEntryV2 {
   label?: string
   docLen: number
   pathBoostBase: number
+  imports?: string[]
+  exportNames?: string[]
+  keywords?: string[]
 }
 
 export interface ChunkShardV2 {
@@ -69,6 +76,25 @@ export interface SymbolShardV2 {
   symbols: SymbolRefV2[]
 }
 
+export interface DepGraphShardV2 {
+  version: 2
+  fingerprint: string
+  forward: Record<string, string[]>
+  reverse: Record<string, string[]>
+}
+
+export interface XRefEntry {
+  filePath: string
+  chunkIndex: number
+  line: number
+}
+
+export interface XRefShardV2 {
+  version: 2
+  fingerprint: string
+  refs: Record<string, XRefEntry[]>
+}
+
 export interface IndexShardMetaV2 {
   file: string
   checksum: string
@@ -88,6 +114,8 @@ export interface IndexManifestV2 {
     terms: IndexShardMetaV2
     chunks: IndexShardMetaV2
     symbols: IndexShardMetaV2
+    deps?: IndexShardMetaV2
+    xrefs?: IndexShardMetaV2
   }
 }
 

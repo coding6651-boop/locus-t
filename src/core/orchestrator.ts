@@ -52,6 +52,12 @@ export class Orchestrator {
     }
   }
 
+  private removeContextMessages(): void {
+    this.session.messages = this.session.messages.filter(
+      m => m.role !== 'user' || !m.content?.startsWith('Here are the relevant project files:')
+    )
+  }
+
   private async buildContext(input: string, onStage?: (stage: import('../repo/types.js').ThinkingStage) => void): Promise<void> {
     const ctx = await this.contextEngine.selectContext(input, undefined, (evt) => onStage?.(evt.stage))
     this.promptBuilder.setFileContext(ctx)
@@ -112,6 +118,10 @@ export class Orchestrator {
     }
 
     await this.buildContext(input)
+    this.removeContextMessages()
+    if (this.promptBuilder.hasFileContext()) {
+      this.session.messages.push(this.promptBuilder.buildContextMessage())
+    }
     this.session.messages.push(this.promptBuilder.buildUser(input))
 
     for (let i = 0; i < this.maxIterations; i++) {
@@ -184,6 +194,10 @@ export class Orchestrator {
     const status = new ThinkingStatus()
     status.start('Scanning project')
     await this.buildContext(input, (stage) => status.update(stage))
+    this.removeContextMessages()
+    if (this.promptBuilder.hasFileContext()) {
+      this.session.messages.push(this.promptBuilder.buildContextMessage())
+    }
     this.session.messages.push(this.promptBuilder.buildUser(input))
 
     for (let i = 0; i < this.maxIterations; i++) {
