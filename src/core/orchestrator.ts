@@ -247,6 +247,10 @@ export class Orchestrator {
     return '\nReached maximum iteration limit.'
   }
 
+  getProjectTree(): string {
+    return this.contextEngine.getProjectTree()
+  }
+
   listSessions(): { id: string; createdAt: string; turns: number }[] {
     return this.store.list()
   }

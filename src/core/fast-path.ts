@@ -28,6 +28,17 @@ const FAST_PATH_PATTERNS = [
   /path\s+to\s+/i,
 ]
 
+const FAST_PATH_EXCLUSIONS = [
+  /\bcode\b/i,
+  /\bcontent\b/i,
+  /\bsource\b/i,
+  /\bimplement/i,
+  /\bwhat\s+(does|is\s+in)\b/i,
+  /\bhow\s+(does|is)\b/i,
+  /\bexplain\b/i,
+  /\bshow\s+me\s+(the\s+)?(code|content|source|implementation)\b/i,
+]
+
 function extractKeywords(query: string): string[] {
   const words = query.toLowerCase().split(/[^a-zA-Z0-9_+#.-]+/).filter(Boolean)
   const seen = new Set<string>()
@@ -64,7 +75,9 @@ function cleanQuery(query: string): string {
 }
 
 export function isFastPathCandidate(query: string): boolean {
-  return FAST_PATH_PATTERNS.some(p => p.test(query.trim()))
+  const q = query.trim()
+  if (FAST_PATH_EXCLUSIONS.some(p => p.test(q))) return false
+  return FAST_PATH_PATTERNS.some(p => p.test(q))
 }
 
 export function resolveFastPath(query: string, allFiles: string[]): string | null {

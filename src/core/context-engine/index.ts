@@ -68,6 +68,13 @@ export class ContextEngine {
     return buildFlatList(result)
   }
 
+  getProjectTree(rootPath?: string, maxDepth = 4): string {
+    const result = this.ensureScanned(rootPath)
+    const dir = rootPath ?? process.cwd()
+    const allPaths = new Set(buildFlatList(result))
+    return buildCompactTree(result.root, maxDepth, dir.replace(/\\/g, '/'), allPaths)
+  }
+
   ensureIndex(rootPath?: string, onProgress?: (evt: ThinkingProgressEvent) => void): void {
     const dir = rootPath ?? process.cwd()
     this.indexer.setRootPath(dir)
@@ -236,20 +243,27 @@ function buildCompactTree(root: FileNode, maxDepth: number, rootDir: string, rel
       return rel.startsWith(dirPath)
     })
   }
-  function walk(nodes: FileNode[], prefix: string, depth: number) {
+  function walk(nodes: FileNode[], prefix: string, depth: number, treePrefix: string) {
     if (depth > maxDepth) return
-    for (const n of nodes) {
+    const visible = nodes.filter(n => {
+      if (n.type === 'dir') return depth < 2 || relMatch(prefix ? prefix + '/' + n.name : n.name)
+      return depth < 1
+    })
+    for (let i = 0; i < visible.length; i++) {
+      const n = visible[i]
+      const isLast = i === visible.length - 1
+      const connector = isLast ? '└── ' : '├── '
+      const childPrefix = isLast ? '    ' : '│   '
       const p = prefix ? prefix + '/' + n.name : n.name
       if (n.type === 'dir') {
-        const shouldExpand = depth < 2 || relMatch(p)
-        if (shouldExpand) lines.push(p + '/')
-        if (shouldExpand && depth < maxDepth) walk(n.children ?? [], p, depth + 1)
-      } else if (depth < 1) {
-        lines.push(p)
+        lines.push(treePrefix + connector + n.name + '/')
+        if (depth < maxDepth) walk(n.children ?? [], p, depth + 1, treePrefix + childPrefix)
+      } else {
+        lines.push(treePrefix + connector + n.name)
       }
     }
   }
-  walk(root.children ?? [], '', 0)
+  walk(root.children ?? [], '', 0, '')
   return lines.join('\n')
 }
 

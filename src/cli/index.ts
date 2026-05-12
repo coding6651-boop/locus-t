@@ -19,6 +19,7 @@ import {
   divider, commandEntry, sectionHeader,
   statusBadge, kvLine, relativeTime, ICON,
 } from '../ui/theme.js'
+import { ResponseFormatter } from '../ui/response-formatter.js'
 
 const W = 40
 
@@ -59,6 +60,7 @@ function buildHelp(): string {
   lines.push(pc.dim('    Codebase'))
   lines.push(commandEntry('/index', 'Index codebase for context'))
   lines.push(commandEntry('/index benchmark', 'Run index benchmark timings'))
+  lines.push(commandEntry('/tree', 'Show project file structure'))
   lines.push('')
   lines.push(pc.dim('    System'))
   lines.push(commandEntry('/setup', 'Install llama.cpp runtime'))
@@ -225,9 +227,13 @@ export class CLI {
 
       try {
         process.stdout.write('\n')
+        const formatter = new ResponseFormatter((text) => {
+          process.stdout.write(text)
+        })
         await this.orchestrator.runStream(t, (token) => {
-          process.stdout.write(token)
+          formatter.write(token)
         }, ac.signal)
+        formatter.flush()
         clearEscHint()
         process.stdout.write('\n')
       } catch (err: any) {
@@ -285,7 +291,7 @@ export class CLI {
       return
     }
 
-    if (!this.ready && this.licensed && command !== '/setup' && command !== '/help' && command !== '/exit' && command !== '/quit' && command !== '/activate' && command !== '/index') {
+    if (!this.ready && this.licensed && command !== '/setup' && command !== '/help' && command !== '/exit' && command !== '/quit' && command !== '/activate' && command !== '/index' && command !== '/tree') {
       process.stdout.write(`  ${ICON.info} ${pc.yellow('AI features need a running runtime.')} Use ${pc.green('/setup')}.\n`)
       return
     }
@@ -312,6 +318,10 @@ export class CLI {
 
       case '/index':
         await this.handleIndex(rl, parts[1])
+        break
+
+      case '/tree':
+        this.handleTree()
         break
 
       case '/sessions': {
@@ -476,6 +486,30 @@ export class CLI {
       process.stdout.write(`  ${statusBadge('Local AI ready', 'success')}\n\n`)
       rl?.setPrompt(prompt(this.licensed, this.ready))
     }
+  }
+
+  private handleTree(): void {
+    const tree = this.orchestrator.getProjectTree()
+    if (!tree) {
+      process.stdout.write(`  ${ICON.warning} ${pc.yellow('No project scanned yet.')} Run ${pc.green('/index')} first.\n`)
+      return
+    }
+    process.stdout.write('\n')
+    process.stdout.write(sectionHeader('Project Structure') + '\n')
+    process.stdout.write(divider(40) + '\n')
+    const lines = tree.split('\n')
+    for (const line of lines) {
+      const isDir = line.trimEnd().endsWith('/')
+      const trimmed = line.replace(/[├└│─\s]/g, '')
+      const indent = line.replace(trimmed.replace(/\/$/, ''), '')
+      if (isDir) {
+        const dirName = trimmed.replace(/\/$/, '')
+        process.stdout.write(`  ${indent}${pc.bold(pc.cyan(dirName))}/\n`)
+      } else {
+        process.stdout.write(`  ${indent}${pc.white(trimmed)}\n`)
+      }
+    }
+    process.stdout.write(divider(40) + '\n\n')
   }
 
   private async handleIndex(rl: ReturnType<typeof createInterface>, mode?: string): Promise<void> {
