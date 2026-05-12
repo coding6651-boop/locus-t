@@ -16,6 +16,18 @@ Critical rules:
 - Follow project conventions exactly. Never refactor code you were not asked to change.
 - Never assume a library is available — check project files first.`
 
+export const AGENTIC_CONTEXT_PROMPT = `You have a read tool to inspect project files. You will be given a list of likely relevant files.
+
+To inspect a file, output on its own line:
+@read(filepath)
+
+Example:
+@read(src/auth/login.ts)
+
+After reading, reason from the REAL code — do not guess.
+Only read files you actually need. Keep reads to a minimum.
+ONLY reference files, functions, or code that you have actually read. Do not invent file names or code.`
+
 export const SYSTEM_PROMPT_WITH_TOOLS = `You are locus, a helpful coding assistant running locally on the user's machine.
 You have access to tools that let you interact with the file system and run commands.
 
