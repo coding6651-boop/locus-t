@@ -14,7 +14,7 @@ import { readFileSync, statSync } from 'fs'
 import { resolve } from 'path'
 import { getToolDefinitions, getTool } from '../tools/registry.js'
 
-const MAX_AGENTIC_READS = 3
+const MAX_AGENTIC_READS = 8
 const MAX_TOOL_CALLS = 10
 const MAX_READ_SIZE = 200_000
 const READ_PATTERN = /@read\(([^)]+)\)/g
