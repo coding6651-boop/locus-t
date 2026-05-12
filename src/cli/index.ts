@@ -14,48 +14,98 @@ import { activateLicense } from '../auth/activation.js'
 import { getConfig } from '../runtime/state.js'
 import { IndexManager } from '../repo/index-manager.js'
 import type { IndexProgress } from '../repo/types.js'
+import {
+  gradientLine, boxTop, boxLine, boxBottom,
+  divider, commandEntry, sectionHeader,
+  statusBadge, kvLine, relativeTime, ICON,
+} from '../ui/theme.js'
 
-const BANNER = pc.cyan(`
-  ╔══════════════════════════════╗
-  ║        locus v0.1            ║
-  ║   Local AI Coding Terminal   ║
-  ╚══════════════════════════════╝
-`)
+const W = 40
 
-const HELP = `${pc.dim('Commands:')}
-  ${pc.green('/help')}       Show help
-  ${pc.green('/index')}      Index codebase status and management
-  ${pc.green('/index benchmark')} Run index benchmark timings
-  ${pc.green('/clear')}      Clear screen
-  ${pc.green('/sessions')}   List saved sessions
-  ${pc.green('/session <id>')} Resume a session by ID
-  ${pc.green('/new')}        Start a new session
-  ${pc.green('/setup')}      Download and install llama.cpp runtime
-  ${pc.green('/activate')}   Activate license with a token
-  ${pc.green('/exit')}       Exit
-`
+const LOGO_LINES = [
+  '  ██╗      ██████╗  ██████╗██╗   ██╗███████╗',
+  '  ██║     ██╔═══██╗██╔════╝██║   ██║██╔════╝',
+  '  ██║     ██║   ██║██║     ██║   ██║███████╗',
+  '  ██║     ██║   ██║██║     ██║   ██║╚════██║',
+  '  ███████╗╚██████╔╝╚██████╗╚██████╔╝███████║',
+  '  ╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚══════╝',
+]
 
-const HELP_LIMITED = `${pc.dim('Commands:')}
-  ${pc.green('/activate <token>')} Activate your license
-  ${pc.green('/setup')}      Download and install llama.cpp runtime
-  ${pc.green('/help')}             Show this help
-  ${pc.green('/exit')}             Exit
-`
+function buildBanner(): string {
+  const lines: string[] = ['']  
+  for (const l of LOGO_LINES) lines.push(gradientLine(l))
+  lines.push('')
+  lines.push(boxTop(W))
+  lines.push(boxLine(`${pc.bold('locus')} ${pc.dim('v0.1')}  ${ICON.sparkle}  Local AI Coding Terminal`, W))
+  lines.push(boxBottom(W))
+  lines.push('')
+  return lines.join('\n')
+}
 
-const HELP_UNCONFIGURED = `${pc.dim('Commands:')}
-  ${pc.green('/setup')}      Download and install llama.cpp runtime
-  ${pc.green('/activate')}   Activate license with a token
-  ${pc.green('/help')}       Show this help
-  ${pc.green('/exit')}       Exit
-`
+const BANNER = buildBanner()
+
+function buildHelp(): string {
+  const lines: string[] = []
+  lines.push(sectionHeader('Commands'))
+  lines.push(divider(40))
+  lines.push('')
+  lines.push(pc.dim('    AI & Sessions'))
+  lines.push(commandEntry('/help', 'Show this help menu'))
+  lines.push(commandEntry('/new', 'Start a fresh session'))
+  lines.push(commandEntry('/sessions', 'List saved sessions'))
+  lines.push(commandEntry('/session <id>', 'Resume a session by ID'))
+  lines.push(commandEntry('/clear', 'Clear the terminal screen'))
+  lines.push('')
+  lines.push(pc.dim('    Codebase'))
+  lines.push(commandEntry('/index', 'Index codebase for context'))
+  lines.push(commandEntry('/index benchmark', 'Run index benchmark timings'))
+  lines.push('')
+  lines.push(pc.dim('    System'))
+  lines.push(commandEntry('/setup', 'Install llama.cpp runtime'))
+  lines.push(commandEntry('/activate <token>', 'Activate a license'))
+  lines.push(commandEntry('/exit', 'Exit locus'))
+  lines.push('')
+  return lines.join('\n')
+}
+
+const HELP = buildHelp()
+
+function buildHelpLimited(): string {
+  const lines: string[] = []
+  lines.push(sectionHeader('Commands'))
+  lines.push(divider(40))
+  lines.push('')
+  lines.push(commandEntry('/activate <token>', 'Activate your license'))
+  lines.push(commandEntry('/setup', 'Install llama.cpp runtime'))
+  lines.push(commandEntry('/help', 'Show this help'))
+  lines.push(commandEntry('/exit', 'Exit locus'))
+  lines.push('')
+  return lines.join('\n')
+}
+
+const HELP_LIMITED = buildHelpLimited()
+
+function buildHelpUnconfigured(): string {
+  const lines: string[] = []
+  lines.push(sectionHeader('Commands'))
+  lines.push(divider(40))
+  lines.push('')
+  lines.push(commandEntry('/setup', 'Install llama.cpp runtime'))
+  lines.push(commandEntry('/activate <token>', 'Activate a license'))
+  lines.push(commandEntry('/help', 'Show this help'))
+  lines.push(commandEntry('/exit', 'Exit locus'))
+  lines.push('')
+  return lines.join('\n')
+}
+
+const HELP_UNCONFIGURED = buildHelpUnconfigured()
 
 const ESC_BYTE = 27
 
 function prompt(licensed: boolean, ready: boolean): string {
-  const p = 'locus'
-  if (!licensed) return pc.yellow(p + ' unlicensed') + pc.dim(' > ')
-  if (!ready) return pc.yellow(p + ' notsetup') + pc.dim(' > ')
-  return pc.green(p) + pc.dim(' > ')
+  if (!licensed) return `${pc.dim('[')}${pc.yellow('unlicensed')}${pc.dim(']')} ${pc.yellow('❯')} `
+  if (!ready) return `${pc.dim('[')}${pc.yellow('no runtime')}${pc.dim(']')} ${pc.yellow('❯')} `
+  return `${pc.cyan('locus')} ${pc.cyan('❯')} `
 }
 
 export class CLI {
@@ -95,16 +145,17 @@ export class CLI {
 
     if (this.ready) {
       const mode = this.runtime?.isRunning ? 'local' : 'external'
-      process.stdout.write(`  ${pc.green('✓ Local AI ready')}  ${pc.dim(`(${mode})\n\n`)}`)
+      process.stdout.write(`  ${statusBadge('AI Ready', 'success')}  ${pc.dim(`(${mode})`)}\n\n`)
     }
 
     if (!this.licensed) {
-      process.stdout.write(pc.yellow('  License required. Available commands:\n'))
+      process.stdout.write(`  ${ICON.warning} ${pc.yellow('License required to unlock full features.')}\n\n`)
       process.stdout.write(HELP_LIMITED + '\n')
     } else if (!this.ready) {
-      process.stdout.write(pc.yellow('  No running runtime. Available commands:\n'))
+      process.stdout.write(`  ${ICON.info} ${pc.yellow('No runtime detected.')} Run ${pc.green('/setup')} to get started.\n\n`)
       process.stdout.write(HELP_UNCONFIGURED + '\n')
     } else {
+      process.stdout.write(`  ${pc.dim('Type a message to chat, or use / commands below.')}\n\n`)
       process.stdout.write(HELP + '\n')
     }
 
@@ -126,13 +177,13 @@ export class CLI {
       }
 
       if (!this.licensed) {
-        process.stdout.write(pc.yellow('  License required. Only /activate, /setup, and /help are available.\n'))
+        process.stdout.write(`  ${ICON.warning} ${pc.yellow('License required.')} Use ${pc.green('/activate')} or ${pc.green('/help')}.\n`)
         rl.prompt()
         return
       }
 
       if (!this.ready) {
-        process.stdout.write(pc.yellow('  No runtime configured. Use /setup to install one, or /help for commands.\n'))
+        process.stdout.write(`  ${ICON.info} ${pc.yellow('No runtime.')} Use ${pc.green('/setup')} to install one.\n`)
         rl.prompt()
         return
       }
@@ -209,7 +260,13 @@ export class CLI {
       }
     })
 
-    rl.on('close', () => { process.stdout.write(pc.dim('\nGoodbye!\n')); process.exit(0) })
+    rl.on('close', () => {
+      process.stdout.write('\n')
+      process.stdout.write(divider(30) + '\n')
+      process.stdout.write(`  ${pc.dim('Thanks for using')} ${pc.cyan('locus')}${pc.dim('.')} ${pc.dim('Goodbye!')}\n`)
+      process.stdout.write(divider(30) + '\n\n')
+      process.exit(0)
+    })
   }
 
   private printLicenseError(code: string): void {
@@ -220,7 +277,7 @@ export class CLI {
       invalid_signature: 'License verification failed.',
       malformed: 'License file is corrupted.',
     }
-    process.stdout.write(pc.yellow(`  ${messages[code] || 'License check failed.'}\n`))
+    process.stdout.write(`  ${ICON.warning} ${pc.yellow(messages[code] || 'License check failed.')}\n`)
   }
 
   private async handleCommand(cmd: string, rl: ReturnType<typeof createInterface>): Promise<void> {
@@ -228,12 +285,12 @@ export class CLI {
     const command = parts[0].toLowerCase()
 
     if (!this.licensed && command !== '/help' && command !== '/activate' && command !== '/exit' && command !== '/quit' && command !== '/setup') {
-      process.stdout.write(pc.yellow('  Not available in unlicensed mode. Use /activate, /setup, or /help.\n'))
+      process.stdout.write(`  ${ICON.warning} ${pc.yellow('Not available in unlicensed mode.')} Try ${pc.green('/activate')} or ${pc.green('/help')}.\n`)
       return
     }
 
     if (!this.ready && this.licensed && command !== '/setup' && command !== '/help' && command !== '/exit' && command !== '/quit' && command !== '/activate' && command !== '/index') {
-      process.stdout.write(pc.yellow('  AI features need a running runtime. Use /setup to install one.\n'))
+      process.stdout.write(`  ${ICON.info} ${pc.yellow('AI features need a running runtime.')} Use ${pc.green('/setup')}.\n`)
       return
     }
 
@@ -246,7 +303,7 @@ export class CLI {
 
       case '/clear':
         if (!this.licensed) {
-          process.stdout.write(pc.yellow('  Not available in unlicensed mode. Use /activate or /help.\n'))
+          process.stdout.write(`  ${ICON.warning} ${pc.yellow('Not available in unlicensed mode.')} Use ${pc.green('/activate')}.\n`)
           break
         }
         console.clear()
@@ -264,12 +321,14 @@ export class CLI {
       case '/sessions': {
         const sessions = this.orchestrator.listSessions()
         if (sessions.length === 0) {
-          process.stdout.write(pc.dim('No saved sessions.\n'))
+          process.stdout.write(`  ${pc.dim('No saved sessions yet.')}\n`)
         } else {
-          process.stdout.write(pc.dim('Saved sessions:\n'))
+          process.stdout.write(sectionHeader('Sessions') + '\n')
+          process.stdout.write(divider(40) + '\n')
           for (const s of sessions) {
-            const date = new Date(s.createdAt).toLocaleString()
-            process.stdout.write(`  ${pc.green(s.id)}  ${date}  ${s.turns} turns\n`)
+            const elapsed = Date.now() - new Date(s.createdAt).getTime()
+            const ago = relativeTime(elapsed)
+            process.stdout.write(`  ${pc.cyan(s.id)}  ${pc.dim(ago)}  ${pc.dim(`${s.turns} turns`)}\n`)
           }
         }
         break
@@ -278,12 +337,16 @@ export class CLI {
       case '/session': {
         let sessionId = parts[1]
         if (!sessionId) {
-          process.stdout.write(pc.yellow('Usage: /session <id>\n'))
+          process.stdout.write(`  ${ICON.info} ${pc.yellow('Usage:')} ${pc.green('/session <id>')}\n`)
           break
         }
         sessionId = sessionId.replace(/^<|>$/g, '')
         const ok = this.orchestrator.switchSession(sessionId)
-        if (!ok) process.stdout.write(pc.red(`Session "${sessionId}" not found.\n`))
+        if (ok) {
+          process.stdout.write(`  ${ICON.success} Resumed session ${pc.cyan(sessionId)}\n`)
+        } else {
+          process.stdout.write(`  ${ICON.error} Session ${pc.dim('"' + sessionId + '"')} not found.\n`)
+        }
         break
       }
 
@@ -305,7 +368,7 @@ export class CLI {
           const sessionId = command.slice(1)
           return this.handleCommand(`/session ${sessionId}`, rl)
         }
-        process.stdout.write(pc.red(`Unknown command: ${command}\n`))
+        process.stdout.write(`  ${ICON.error} ${pc.red('Unknown command:')} ${pc.dim(command)}  ${pc.dim('Try /help')}\n`)
     }
   }
 
@@ -314,10 +377,12 @@ export class CLI {
 
     // ── Check engine state ──
     const engineInstalled = isRuntimeInstalled()
+    process.stdout.write(sectionHeader('Setup') + '\n')
+    process.stdout.write(divider(40) + '\n')
     if (engineInstalled) {
-      process.stdout.write(`  Engine:    ${pc.green('✓ already installed')}  ${pc.dim(runtimeBinaryPath())}\n`)
+      process.stdout.write(kvLine('Engine', `${ICON.success} ${pc.green('installed')}  ${pc.dim(runtimeBinaryPath())}`) + '\n')
     } else {
-      process.stdout.write(`  Engine:    ${pc.yellow('not installed')}\n`)
+      process.stdout.write(kvLine('Engine', `${ICON.warning} ${pc.yellow('not installed')}`) + '\n')
     }
 
     // ── Check model state ──
@@ -325,15 +390,15 @@ export class CLI {
     const modelsDirPath = join(homedir(), '.locus', 'models')
     if (modelPath) {
       const name = modelPath.split(/[/\\]/).pop() ?? modelPath
-      process.stdout.write(`  Model:     ${pc.green('✓')} ${name}\n`)
+      process.stdout.write(kvLine('Model', `${ICON.success} ${name}`) + '\n')
     } else {
-      process.stdout.write(`  Model:     ${pc.yellow('not found')}  ${pc.dim(`place a .gguf in ${modelsDirPath}`)}\n`)
+      process.stdout.write(kvLine('Model', `${ICON.warning} ${pc.yellow('not found')}  ${pc.dim(`place .gguf in ${modelsDirPath}`)}`) + '\n')
     }
 
     // ── If engine needs install ──
     if (!engineInstalled) {
       if (!mgr.hasManifest) {
-        process.stdout.write(pc.red(`\n  ✗ No runtime manifest found. Reinstall locus package.\n\n`))
+        process.stdout.write(`\n  ${ICON.error} ${pc.red('No runtime manifest found.')} Reinstall locus package.\n\n`)
         return
       }
 
@@ -363,13 +428,13 @@ export class CLI {
       })
 
       if (ok && lastPhase === 'extract') {
-        process.stdout.write(` ${pc.green('✓')}\n\n`)
+        process.stdout.write(` ${ICON.success}\n\n`)
       } else if (!ok) {
         process.stdout.write('\n')
-        process.stdout.write(pc.yellow('  Could not install runtime automatically.\n'))
-        process.stdout.write(pc.dim('  Options:\n'))
-        process.stdout.write(pc.dim(`    • Download: ${mgr.hasManifest ? 'retry with /setup' : 'no manifest'}\n`))
-        process.stdout.write(pc.dim(`    • Manual:   extract to ${runtimeDir()}\n`))
+        process.stdout.write(`  ${ICON.warning} ${pc.yellow('Could not install runtime automatically.')}\n`)
+        process.stdout.write(pc.dim('    Options:\n'))
+        process.stdout.write(pc.dim(`    ${ICON.arrow} Retry with ${pc.green('/setup')}\n`))
+        process.stdout.write(pc.dim(`    ${ICON.arrow} Manual extract to ${runtimeDir()}\n`))
         process.stdout.write('\n')
         return
       }
@@ -378,7 +443,7 @@ export class CLI {
     // ── Start engine ──
     const modelPath2 = findModel()
     if (!mgr.isRunning && mgr.isInstalled && modelPath2) {
-      process.stdout.write('  Starting local engine... ')
+      process.stdout.write(`  ${pc.dim('Starting local engine...')} `)
       try {
         const config = getConfig()
         await mgr.start({
@@ -392,26 +457,27 @@ export class CLI {
 
         await new Promise((r) => setTimeout(r, 2000))
         if (!mgr.isRunning) {
-          process.stdout.write(pc.red(`✗\n`))
-          process.stdout.write(pc.yellow('  Process exited unexpectedly (possibly blocked by antivirus).\n'))
-          process.stdout.write(pc.dim('  Add an exclusion for: ') + runtimeDir() + '\n')
-          process.stdout.write(pc.dim('  Or set LOCUS_CLIENT_ONLY=1 and run llama-server manually.\n\n'))
+          process.stdout.write(`${ICON.error}\n`)
+          process.stdout.write(`  ${ICON.warning} ${pc.yellow('Process exited unexpectedly (possibly blocked by antivirus).')}\n`)
+          process.stdout.write(`  ${pc.dim('Add an exclusion for:')} ${runtimeDir()}\n`)
+          process.stdout.write(`  ${pc.dim('Or set LOCUS_CLIENT_ONLY=1 and run llama-server manually.')}\n\n`)
           return
         }
 
-        process.stdout.write(pc.green('✓ Local AI ready\n\n'))
+        process.stdout.write(`${ICON.success}\n`)
+        process.stdout.write(`  ${statusBadge('Local AI ready', 'success')}\n\n`)
         this.ready = true
         rl?.setPrompt(prompt(this.licensed, this.ready))
       } catch {
-        process.stdout.write(pc.red('✗ failed\n'))
-        process.stdout.write(pc.dim('  Use LOCUS_BASE_URL to connect to an external server.\n\n'))
+        process.stdout.write(`${ICON.error} ${pc.red('failed')}\n`)
+        process.stdout.write(`  ${pc.dim('Use LOCUS_BASE_URL to connect to an external server.')}\n\n`)
       }
     } else if (!modelPath2) {
       process.stdout.write('\n')
-      process.stdout.write(pc.yellow('  Model not found. Place a .gguf file and run /setup again.\n'))
-      process.stdout.write(pc.dim(`  Expected location: ${join(homedir(), '.locus', 'models')}\n\n`))
+      process.stdout.write(`  ${ICON.warning} ${pc.yellow('Model not found.')} Place a .gguf file and run ${pc.green('/setup')} again.\n`)
+      process.stdout.write(`  ${pc.dim('Expected:')} ${join(homedir(), '.locus', 'models')}\n\n`)
     } else if (mgr.isRunning) {
-      process.stdout.write(pc.green('  ✓ Local AI ready\n\n'))
+      process.stdout.write(`  ${statusBadge('Local AI ready', 'success')}\n\n`)
       rl?.setPrompt(prompt(this.licensed, this.ready))
     }
   }
@@ -421,62 +487,73 @@ export class CLI {
     const mgr = this.indexManager
     if ((mode ?? '').toLowerCase() === 'benchmark') {
       const bench = mgr.benchmark(rootPath)
-      process.stdout.write(`  ${pc.bold('Index Benchmark')}\n`)
-      process.stdout.write(`  ${pc.dim('scan/build/save/load/query timings')}\n`)
-      process.stdout.write(`  Scan:        ${pc.cyan(`${bench.scanMs} ms`)}\n`)
-      process.stdout.write(`  Build:       ${pc.cyan(`${bench.buildMs} ms`)}\n`)
-      process.stdout.write(`  Save:        ${pc.cyan(`${bench.saveMs} ms`)}\n`)
-      process.stdout.write(`  Load:        ${pc.cyan(`${bench.loadMs} ms`)}\n`)
-      process.stdout.write(`  First query: ${pc.cyan(`${bench.firstQueryMs} ms`)}\n`)
-      process.stdout.write(`  P95 query:   ${pc.cyan(`${bench.p95QueryMs} ms`)}\n`)
-      process.stdout.write(`  Manifest:    ${pc.cyan(`${bench.manifestBytes} bytes`)}\n`)
-      process.stdout.write(`  Shards:      ${pc.cyan(`${bench.shardsBytes} bytes`)}\n\n`)
+      process.stdout.write(sectionHeader('Index Benchmark') + '\n')
+      process.stdout.write(divider(40) + '\n')
+      process.stdout.write(kvLine('Scan', pc.cyan(`${bench.scanMs} ms`)) + '\n')
+      process.stdout.write(kvLine('Build', pc.cyan(`${bench.buildMs} ms`)) + '\n')
+      process.stdout.write(kvLine('Save', pc.cyan(`${bench.saveMs} ms`)) + '\n')
+      process.stdout.write(kvLine('Load', pc.cyan(`${bench.loadMs} ms`)) + '\n')
+      process.stdout.write(kvLine('1st query', pc.cyan(`${bench.firstQueryMs} ms`)) + '\n')
+      process.stdout.write(kvLine('P95 query', pc.cyan(`${bench.p95QueryMs} ms`)) + '\n')
+      process.stdout.write(kvLine('Manifest', pc.cyan(`${bench.manifestBytes} bytes`)) + '\n')
+      process.stdout.write(kvLine('Shards', pc.cyan(`${bench.shardsBytes} bytes`)) + '\n\n')
       return
     }
 
     const status = mgr.status(rootPath)
 
-    process.stdout.write(`  ${pc.bold('Locus Index')}\n`)
-    process.stdout.write(`  ${pc.dim('─'.repeat(40))}\n`)
+    process.stdout.write(sectionHeader('Locus Index') + '\n')
+    process.stdout.write(divider(40) + '\n')
 
-    const icon = status.kind === 'current' ? pc.green('●') : status.kind === 'stale' ? pc.yellow('◐') : pc.red('○')
+    const idxKind = status.kind === 'current' ? 'success' : status.kind === 'stale' ? 'warning' : 'error' as const
     const label = status.kind === 'current' ? 'Up-to-date' : status.kind === 'stale' ? 'Stale' : 'Not indexed'
-    process.stdout.write(`  Status: ${icon} ${label}\n`)
+    process.stdout.write(kvLine('Status', statusBadge(label, idxKind)) + '\n')
 
     if (status.meta) {
-      process.stdout.write(`  Files:  ${pc.cyan(String(status.fileCount))} indexed\n`)
-      process.stdout.write(`  Chunks: ${pc.cyan(String(status.chunkCount))}\n`)
+      process.stdout.write(kvLine('Files', `${pc.cyan(String(status.fileCount))} indexed`) + '\n')
+      process.stdout.write(kvLine('Chunks', pc.cyan(String(status.chunkCount))) + '\n')
       if (status.lastUpdated) {
         const diff = Date.now() - new Date(status.lastUpdated).getTime()
-        const ago = diff < 60000 ? 'just now' : diff < 3600000 ? `${Math.floor(diff / 60000)}m ago` : `${Math.floor(diff / 3600000)}h ago`
-        process.stdout.write(`  Last:   ${pc.dim(ago)}\n`)
+        process.stdout.write(kvLine('Last', pc.dim(relativeTime(diff))) + '\n')
       }
       const size = status.sizeBytes > 1_000_000
         ? `${(status.sizeBytes / 1_000_000).toFixed(1)} MB`
         : `${(status.sizeBytes / 1000).toFixed(0)} KB`
-      process.stdout.write(`  Size:   ${pc.dim(size)}\n`)
+      process.stdout.write(kvLine('Size', pc.dim(size)) + '\n')
     } else {
       const allFiles = mgr.scanFiles(rootPath)
-      process.stdout.write(`  Files:  ${pc.cyan(String(allFiles.length))} total\n`)
+      process.stdout.write(kvLine('Files', `${pc.cyan(String(allFiles.length))} total`) + '\n')
     }
 
-    process.stdout.write(`  Watch:  ${mgr.isWatching ? pc.green('● Active') : pc.dim('○ Off')}\n`)
+    process.stdout.write(kvLine('Watch', mgr.isWatching ? statusBadge('Active', 'success') : pc.dim('○ Off')) + '\n')
 
-    if (status.kind !== 'current') {
+    const needsIndex = status.kind !== 'current'
+    if (needsIndex) {
+      const excludedDirs = ['node_modules', '.git', 'dist', '.locus', '__pycache__', '.next', '.turbo', 'coverage']
+      process.stdout.write(`\n  ${pc.dim('Excluded:')} ${pc.dim(excludedDirs.join(', '))}\n`)
+
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(`\n  ${status.kind === 'stale' ? 'Re-index' : 'Index'} codebase? ${pc.dim('[Y/n]')} `, (a) => resolve(a.trim().toLowerCase()))
+      })
+
+      if (answer === 'n' || answer === 'no') {
+        process.stdout.write(`  ${pc.yellow('Skipped.')}\n\n`)
+        return
+      }
       process.stdout.write('\n')
       this.renderIndexProgress({ current: 1, total: 1, file: '' }, true)
       const result = mgr.index(rootPath, (p) => this.renderIndexProgress(p, false))
       this.renderIndexProgress({ current: result.fileCount, total: result.fileCount, file: '' }, true)
 
-      process.stdout.write(`\n  ${pc.green('✓ Indexing complete')}\n`)
-      process.stdout.write(`  ${result.fileCount} files | ${result.chunkCount} chunks\n`)
+      process.stdout.write(`\n  ${ICON.success} ${pc.green('Indexing complete')}\n`)
+      process.stdout.write(`  ${pc.dim(`${result.fileCount} files`)} ${pc.dim('|')} ${pc.dim(`${result.chunkCount} chunks`)}\n`)
 
       mgr.startWatcher(rootPath, () => {
         mgr.rebuild(rootPath)
       })
-      process.stdout.write(`  ${pc.green('● Watcher active')} ${pc.dim('(auto-rebuilds on file changes)\n')}\n`)
+      process.stdout.write(`  ${statusBadge('Watcher active', 'success')} ${pc.dim('(auto-rebuilds on changes)')}\n\n`)
     } else {
-      process.stdout.write(`\n  ${pc.dim('Type /index again to force re-index.\n')}\n`)
+      process.stdout.write(`\n  ${pc.dim('Type /index again to force re-index.')}\n\n`)
     }
   }
 
@@ -523,10 +600,10 @@ export class CLI {
 
     if (!token) {
       token = await new Promise<string>((resolve) => {
-        rl.question(pc.dim('  Activation token: '), (answer) => resolve(answer.trim()))
+        rl.question(`  ${pc.dim('Activation token:')} `, (answer) => resolve(answer.trim()))
       })
       if (!token) {
-        process.stdout.write(pc.yellow('  No token provided.\n'))
+        process.stdout.write(`  ${ICON.warning} ${pc.yellow('No token provided.')}\n`)
         return
       }
     }
@@ -534,21 +611,21 @@ export class CLI {
     process.stdout.write('\n')
 
     const result = await activateLicense(token, (status) => {
-      process.stdout.write(`  ${pc.dim(status)}\n`)
+      process.stdout.write(`  ${pc.dim(ICON.arrow)} ${pc.dim(status)}\n`)
     })
 
     if (result.ok) {
       this.licensed = true
       rl.setPrompt(prompt(true, this.ready))
-      process.stdout.write(pc.green('  ✓ License activated successfully!\n'))
+      process.stdout.write(`  ${ICON.success} ${pc.green('License activated successfully!')}\n`)
       if (result.warnings?.length) {
         for (const w of result.warnings) {
-          process.stdout.write(pc.yellow(`  ⚠ ${w}\n`))
+          process.stdout.write(`  ${ICON.warning} ${pc.yellow(w)}\n`)
         }
       }
       process.stdout.write('\n')
     } else {
-      process.stdout.write(pc.red(`  ✗ Activation failed: ${result.message}\n\n`))
+      process.stdout.write(`  ${ICON.error} ${pc.red('Activation failed:')} ${result.message}\n\n`)
     }
   }
 }

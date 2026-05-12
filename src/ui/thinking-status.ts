@@ -1,7 +1,7 @@
 import pc from 'picocolors'
 import type { ThinkingStage } from '../repo/types.js'
 
-const FRAMES = ['.', '..', '...']
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 function formatElapsed(ms: number): string {
   const total = Math.max(0, ms)
@@ -28,9 +28,9 @@ export class ThinkingStatus {
     }
     this.render()
     this.interval = setInterval(() => {
-      this.frame = (this.frame + 1) % FRAMES.length
+      this.frame = (this.frame + 1) % SPINNER.length
       this.render()
-    }, 150)
+    }, 80)
   }
 
   update(stage: ThinkingStage): void {
@@ -52,6 +52,7 @@ export class ThinkingStatus {
 
   private render(): void {
     const elapsed = formatElapsed(Date.now() - this.startedAt)
-    process.stderr.write(`\r${pc.dim(`  ${this.stage}${FRAMES[this.frame]} ${elapsed}`)}\x1b[K`)
+    const spin = pc.cyan(SPINNER[this.frame])
+    process.stderr.write(`\r  ${spin} ${pc.dim(this.stage)}  ${pc.dim(elapsed)}\x1b[K`)
   }
 }

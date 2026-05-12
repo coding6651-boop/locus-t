@@ -4,6 +4,9 @@ dist/
 storage/
 models/*.gguf
 
+# Locus index files
+.locus/
+
 # Environment files
 .env.local
 
