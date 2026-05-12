@@ -18,7 +18,9 @@ export class LlamaCppProvider extends BaseProvider {
       model: this.config.model,
       messages: messages as any,
       temperature: this.config.temperature ?? 0.1,
-      max_tokens: this.config.maxTokens ?? 8192,
+      max_tokens: this.config.maxTokens ?? 2048,
+      frequency_penalty: 0.6,
+      presence_penalty: 0.3,
     }
     if (tools?.length) params.tools = tools as any
 
@@ -46,8 +48,10 @@ export class LlamaCppProvider extends BaseProvider {
       model: this.config.model,
       messages: messages as any,
       temperature: this.config.temperature ?? 0.1,
-      max_tokens: this.config.maxTokens ?? 8192,
+      max_tokens: this.config.maxTokens ?? 2048,
       stream: true,
+      frequency_penalty: 0.6,
+      presence_penalty: 0.3,
     }
     if (tools?.length) params.tools = tools as any
 

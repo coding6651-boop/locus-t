@@ -111,7 +111,13 @@ export class Orchestrator {
       return sharedCached
     }
 
-    await this.buildContext(input)
+    if (needsCodeContext(input)) {
+      await this.buildContext(input)
+    } else {
+      this.promptBuilder.setFileContext('')
+      const systemMsg = this.promptBuilder.buildSystem()
+      this.contextEngine.setSystemMessage(systemMsg)
+    }
     this.session.messages.push(this.promptBuilder.buildUser(input))
 
     for (let i = 0; i < this.maxIterations; i++) {
@@ -182,27 +188,50 @@ export class Orchestrator {
     }
 
     const status = new ThinkingStatus()
-    status.start('Scanning project')
-    await this.buildContext(input, (stage) => status.update(stage))
+    if (needsCodeContext(input)) {
+      status.start('Scanning project')
+      await this.buildContext(input, (stage) => status.update(stage))
+    } else {
+      this.promptBuilder.setFileContext('')
+      const systemMsg = this.promptBuilder.buildSystem()
+      this.contextEngine.setSystemMessage(systemMsg)
+      status.start('Thinking')
+    }
     this.session.messages.push(this.promptBuilder.buildUser(input))
 
     for (let i = 0; i < this.maxIterations; i++) {
       const pruned = this.contextEngine.prune(this.session.messages)
       status.update('Generating response')
       let firstToken = true
+      let accumulated = ''
+      const repAbort = new AbortController()
+      const onAbort = () => repAbort.abort()
+      signal?.addEventListener('abort', onAbort, { once: true })
+
       const wrappedOnToken = (token: string) => {
         if (firstToken) {
           firstToken = false
           status.stop()
         }
+        accumulated += token
+        if (detectRepetition(accumulated)) {
+          repAbort.abort()
+          return
+        }
         onToken?.(token)
       }
 
-      const response = await this.inference.chatStream(pruned, undefined, wrappedOnToken, { signal })
+      try {
+        await this.inference.chatStream(pruned, undefined, wrappedOnToken, { signal: repAbort.signal })
+      } catch (err: any) {
+        if (err.name === 'AbortError' && signal?.aborted) throw err
+      } finally {
+        signal?.removeEventListener('abort', onAbort)
+      }
 
       if (firstToken) status.stop()
 
-      const content = response.content ?? ''
+      const content = trimRepeatedTail(accumulated)
       this.session.messages.push({ role: 'assistant', content })
       this.session.turns++
       this.session.updatedAt = new Date().toISOString()
@@ -282,4 +311,47 @@ export class Orchestrator {
     }
     process.stdout.write('\n')
   }
+}
+
+const CODE_SIGNALS = [
+  /\b(file|function|class|module|import|export|variable|method|type|interface|error|bug|fix|refactor|test|lint|build|compile)\b/i,
+  /\b(src|lib|config|package|component|endpoint|route|api|database|schema|migration)\b/i,
+  /\b(where\s+is|show\s+me|find|locate|create|add|remove|update|change|rename|move|delete)\b/i,
+  /\b(how\s+to|implement|write|code|debug|deploy|install|setup|configure)\b/i,
+  /[./\\][\w-]+\.(ts|js|py|rs|go|java|json|yaml|md|css|html|tsx|jsx)\b/,
+  /`[^`]+`/,
+]
+
+function needsCodeContext(input: string): boolean {
+  return CODE_SIGNALS.some(p => p.test(input))
+}
+
+const REP_WINDOW = 60
+const REP_MIN_LEN = 200
+
+function detectRepetition(text: string): boolean {
+  if (text.length < REP_MIN_LEN) return false
+  const tail = text.slice(-REP_WINDOW)
+  const searchIn = text.slice(0, -REP_WINDOW)
+  if (searchIn.length < REP_WINDOW) return false
+  let count = 0
+  let pos = 0
+  while ((pos = searchIn.indexOf(tail, pos)) !== -1) {
+    count++
+    if (count >= 2) return true
+    pos++
+  }
+  return false
+}
+
+function trimRepeatedTail(text: string): string {
+  if (text.length < REP_MIN_LEN) return text
+  for (let w = 30; w <= 120; w++) {
+    const tail = text.slice(-w)
+    const idx = text.lastIndexOf(tail, text.length - w - 1)
+    if (idx !== -1 && idx > 0) {
+      return text.slice(0, idx + w).trimEnd()
+    }
+  }
+  return text
 }

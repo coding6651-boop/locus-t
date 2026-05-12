@@ -123,6 +123,7 @@ export type ThinkingStage =
   | 'Scoring matches'
   | 'Building context'
   | 'Generating response'
+  | 'Thinking'
 
 export interface ThinkingProgressEvent {
   stage: ThinkingStage

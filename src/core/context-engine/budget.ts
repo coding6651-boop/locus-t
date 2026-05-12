@@ -37,15 +37,17 @@ export function trimHistoryToBudget(
   budget: TokenBudget,
   systemMessage: Message | null,
 ): Message[] {
-  let total = 0
-  if (systemMessage?.content) total += estimateTokens(systemMessage.content)
+  let overhead = 0
+  if (systemMessage?.content) overhead += estimateTokens(systemMessage.content)
+  const available = budget.history - overhead
 
   const kept: Message[] = []
-  for (const m of messages) {
-    const tokens = estimateTokens(m.content ?? '')
-    if (total + tokens > budget.history) break
+  let total = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const tokens = estimateTokens(messages[i].content ?? '')
+    if (total + tokens > available) break
     total += tokens
-    kept.push(m)
+    kept.unshift(messages[i])
   }
 
   return kept
